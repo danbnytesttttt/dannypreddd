@@ -64,8 +64,22 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
 {
     pred_sdk::pred_data result{};
 
+    // DEBUG: Call counter - log every 10th call
+    static int call_count = 0;
+    call_count++;
+    if (call_count % 10 == 1)
+    {
+        char count_msg[256];
+        sprintf_s(count_msg, "[Danny.Prediction] predict() called %d times", call_count);
+        g_sdk->log_console(count_msg);
+    }
+
     if (!obj || !obj->is_valid() || !spell_data.source || !spell_data.source->is_valid())
     {
+        if (call_count <= 5)  // Log first few failures
+        {
+            g_sdk->log_console("[Danny.Prediction] predict() called with invalid obj/source - returning any");
+        }
         result.hitchance = pred_sdk::hitchance::any;
         return result;
     }
@@ -74,7 +88,7 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     static bool first_call = true;
     if (first_call)
     {
-        g_sdk->log_console("[Danny.Prediction] Active and predicting!");
+        g_sdk->log_console("[Danny.Prediction] First valid prediction call!");
         first_call = false;
     }
 

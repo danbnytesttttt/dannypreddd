@@ -13,7 +13,7 @@
 
 // Reasoning string generation (expensive - disable for production)
 // Set to 0 to disable reasoning strings (saves ~0.02ms per prediction)
-#define HYBRID_PRED_ENABLE_REASONING 0
+#define HYBRID_PRED_ENABLE_REASONING 1
 
 namespace HybridPred
 {

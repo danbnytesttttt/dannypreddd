@@ -10,6 +10,15 @@ std::string MyHeroNamePredCore;
 void __fastcall on_update()
 {
     CustomPredictionSDK::update_trackers();
+
+    // Periodic heartbeat log (every 5 seconds) to confirm updates are running
+    static float last_log_time = 0.f;
+    float current_time = g_sdk->clock_facade->get_game_time();
+    if (current_time - last_log_time >= 5.0f)
+    {
+        g_sdk->log_console("[Danny.Prediction] Update loop active - trackers updating");
+        last_log_time = current_time;
+    }
 }
 
 namespace Prediction
@@ -41,8 +50,13 @@ extern "C" __declspec(dllexport) bool PluginLoad(core_sdk* sdk, void** custom_sd
 {
     g_sdk = sdk;
 
+    // CRITICAL: Log plugin load attempt
+    g_sdk->log_console("==============================================");
+    g_sdk->log_console("[Danny.Prediction] Plugin loading...");
+
     if (!sdk_init::target_selector())
     {
+        g_sdk->log_console("[Danny.Prediction] ERROR: Target selector init failed!");
         return false;
     }
 
@@ -52,10 +66,19 @@ extern "C" __declspec(dllexport) bool PluginLoad(core_sdk* sdk, void** custom_sd
 
     Prediction::LoadPrediction();
 
+    // Confirm successful load
+    char load_msg[256];
+    sprintf_s(load_msg, "[Danny.Prediction] Successfully loaded for champion: %s", MyHeroNamePredCore.c_str());
+    g_sdk->log_console(load_msg);
+    g_sdk->log_console("[Danny.Prediction] SDK pointer registered - ready for predictions!");
+    g_sdk->log_console("==============================================");
+
     return true;
 }
 
 extern "C" __declspec(dllexport) void PluginUnload()
 {
+    g_sdk->log_console("[Danny.Prediction] Plugin unloading...");
     Prediction::UnloadPrediction();
+    g_sdk->log_console("[Danny.Prediction] Plugin unloaded successfully.");
 }
