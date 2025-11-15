@@ -134,6 +134,10 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
             result.cast_position.x, result.cast_position.y, result.cast_position.z);
         g_sdk->log_console(debug_msg);
     } else {
+        // CRITICAL: Mark prediction as invalid if hitchance doesn't meet threshold
+        // This prevents the spell wrapper from casting when hitchance is too low
+        result.is_valid = false;
+
         // Suggest if threshold might be too conservative
         if (spell_data.expected_hitchance >= pred_sdk::hitchance::very_high) {
             g_sdk->log_console("[Danny.Prediction] HINT: Threshold is VERY_HIGH or GUARANTEED - try lowering to HIGH or MEDIUM in script settings");
@@ -160,6 +164,13 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
             sprintf_s(debug_msg, "[Danny.Prediction] Hitchance after collision: %d -> %d",
                 old_hc, static_cast<int>(result.hitchance));
             g_sdk->log_console(debug_msg);
+
+            // Recheck threshold after collision penalty
+            if (result.hitchance < spell_data.expected_hitchance)
+            {
+                result.is_valid = false;
+                g_sdk->log_console("[Danny.Prediction] Collision penalty dropped hitchance below threshold - invalidating prediction");
+            }
         }
         else
         {
