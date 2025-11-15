@@ -71,16 +71,22 @@ pred_sdk::pred_data CustomPredictionSDK::predict(pred_sdk::spell_data spell_data
 
 pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spell_data spell_data)
 {
+    // DEBUG: Log immediately to detect calls
+    char debug_msg[512];
+    sprintf_s(debug_msg, "[Danny.Prediction] predict(target) called - obj=0x%p source=0x%p",
+        obj, spell_data.source);
+    g_sdk->log_console(debug_msg);
+
     pred_sdk::pred_data result{};
 
     if (!obj || !obj->is_valid() || !spell_data.source || !spell_data.source->is_valid())
     {
+        g_sdk->log_console("[Danny.Prediction] EARLY EXIT: Invalid obj or source!");
         result.hitchance = pred_sdk::hitchance::any;
         return result;
     }
 
     // DEBUG: Log spell details
-    char debug_msg[512];
     sprintf_s(debug_msg, "[Danny.Prediction] Spell: Range=%.0f Radius=%.0f Delay=%.2f Speed=%.0f Type=%d",
         spell_data.range, spell_data.radius, spell_data.delay, spell_data.projectile_speed,
         static_cast<int>(spell_data.spell_type));
