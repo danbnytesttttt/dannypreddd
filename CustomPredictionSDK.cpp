@@ -90,8 +90,14 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     // CRITICAL FIX: If source is null, use local player as default
     if (!spell_data.source || !spell_data.source->is_valid())
     {
+        static bool warned_once = false;
+        if (!warned_once)
+        {
+            g_sdk->log_console("[Danny.Prediction] WARNING: source was null - using local player (will not warn again)");
+            warned_once = true;
+        }
+
         spell_data.source = g_sdk->object_manager->get_local_player();
-        g_sdk->log_console("[Danny.Prediction] WARNING: source was null - using local player");
 
         if (!spell_data.source || !spell_data.source->is_valid())
         {
