@@ -10,15 +10,6 @@ std::string MyHeroNamePredCore;
 void __fastcall on_update()
 {
     CustomPredictionSDK::update_trackers();
-
-    // Periodic heartbeat log (every 5 seconds) to confirm updates are running
-    static float last_log_time = 0.f;
-    float current_time = g_sdk->clock_facade->get_game_time();
-    if (current_time - last_log_time >= 5.0f)
-    {
-        g_sdk->log_console("[Danny.Prediction] Update loop active - trackers updating");
-        last_log_time = current_time;
-    }
 }
 
 namespace Prediction
