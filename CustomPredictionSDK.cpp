@@ -186,27 +186,13 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         pred_sdk::collision_ret collision = collides(result.cast_position, spell_data, obj);
         if (collision.collided)
         {
-            g_sdk->log_console("[Danny.Prediction] WARNING: Collision detected - reducing hitchance by 20");
-
-            // Reduce hitchance if collision detected
-            int old_hc = static_cast<int>(result.hitchance);
-            if (result.hitchance > pred_sdk::hitchance::low)
-            {
-                result.hitchance = static_cast<pred_sdk::hitchance>(
-                    static_cast<int>(result.hitchance) - 20
-                    );
-            }
-
-            sprintf_s(debug_msg, "[Danny.Prediction] Hitchance after collision: %d -> %d",
-                old_hc, static_cast<int>(result.hitchance));
-            g_sdk->log_console(debug_msg);
-
-            // Recheck threshold after collision penalty
-            if (result.hitchance < spell_data.expected_hitchance)
-            {
-                result.is_valid = false;
-                g_sdk->log_console("[Danny.Prediction] Collision penalty dropped hitchance below threshold - invalidating prediction");
-            }
+            // CRITICAL: For non-piercing skillshots, ANY collision invalidates the prediction
+            // Don't just reduce hitchance - completely block the cast
+            g_sdk->log_console("[Danny.Prediction] COLLISION DETECTED - Minion blocking path!");
+            g_sdk->log_console("[Danny.Prediction] Invalidating prediction - cannot hit through minions");
+            result.is_valid = false;
+            result.hitchance = pred_sdk::hitchance::any;
+            return result;
         }
         else
         {
