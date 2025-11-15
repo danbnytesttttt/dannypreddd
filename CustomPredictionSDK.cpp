@@ -9,6 +9,8 @@
 
 pred_sdk::pred_data CustomPredictionSDK::targetted(pred_sdk::spell_data spell_data)
 {
+    g_sdk->log_console("[Danny.Prediction] targetted() called (point-and-click spell)");
+
     pred_sdk::pred_data result{};
 
     // Targeted spells don't need prediction - just return target position
@@ -43,15 +45,22 @@ pred_sdk::pred_data CustomPredictionSDK::targetted(pred_sdk::spell_data spell_da
 
 pred_sdk::pred_data CustomPredictionSDK::predict(pred_sdk::spell_data spell_data)
 {
+    g_sdk->log_console("[Danny.Prediction] Auto-target predict() called");
+
     // Auto-select best target
     game_object* best_target = get_best_target(spell_data);
 
     if (!best_target)
     {
+        g_sdk->log_console("[Danny.Prediction] Auto-target: No valid target found");
         pred_sdk::pred_data result{};
         result.hitchance = pred_sdk::hitchance::any;
         return result;
     }
+
+    char debug_msg[256];
+    sprintf_s(debug_msg, "[Danny.Prediction] Auto-target selected: %s", best_target->get_char_name().c_str());
+    g_sdk->log_console(debug_msg);
 
     return predict(best_target, spell_data);
 }
