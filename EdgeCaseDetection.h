@@ -666,13 +666,14 @@ namespace EdgeCases
         bool has_shield;
         bool is_clone;
         bool blocked_by_windwall;
+        bool is_in_fog_of_war;  // Source is hidden from target (enemy can't see us)
 
         // Confidence and priority adjustments
         float confidence_multiplier;
         float priority_multiplier;
 
         EdgeCaseAnalysis() : is_slowed(false), has_shield(false),
-            is_clone(false), blocked_by_windwall(false),
+            is_clone(false), blocked_by_windwall(false), is_in_fog_of_war(false),
             confidence_multiplier(1.0f), priority_multiplier(1.0f) {}
     };
 
@@ -709,6 +710,17 @@ namespace EdgeCases
                 target->get_position(),
                 analysis.windwalls
             );
+
+            // Fog of war detection: Check if source is hidden from target's team
+            // If target can't see us, they can't react to our skillshots
+            if (g_sdk && g_sdk->nav_mesh)
+            {
+                int enemy_team_id = target->get_team_id();
+                math::vector3 source_pos = source->get_position();
+
+                // is_in_fow_for_team returns TRUE if position is in fog of war for that team
+                analysis.is_in_fog_of_war = g_sdk->nav_mesh->is_in_fow_for_team(source_pos, enemy_team_id);
+            }
         }
 
         // Calculate adjustments
@@ -738,6 +750,9 @@ namespace EdgeCases
 
         if (analysis.blocked_by_windwall)
             analysis.confidence_multiplier *= 0.2f;  // Will be blocked by windwall
+
+        if (analysis.is_in_fog_of_war)
+            analysis.confidence_multiplier *= 1.35f;  // Enemy can't see us - can't react to skillshot
 
         if (analysis.is_clone)
             analysis.priority_multiplier *= 0.1f;  // Don't target clones

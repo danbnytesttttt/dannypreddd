@@ -1627,6 +1627,9 @@ namespace HybridPred
             if (edge_cases.dash.is_dashing && !math::is_zero(edge_cases.dash.dash_end_position))
                 spell_result.reasoning += "\n[DASH PREDICTION: Aiming at dash endpoint]";
 
+            if (edge_cases.is_in_fog_of_war)
+                spell_result.reasoning += "\n[FOG OF WAR: Enemy can't see us - reduced reaction time +35% confidence]";
+
             if (stationary_boost > 0.f)
             {
                 float duration = tracker.get_stationary_duration(g_sdk->clock_facade->get_game_time());
