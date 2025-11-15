@@ -510,6 +510,17 @@ bool CustomPredictionSDK::check_collision_simple(
                 if (!is_collision_object(minion, spell_data))
                     continue;
 
+                // CRITICAL: Only check collision with ENEMY minions and jungle monsters
+                // Ally minions should NOT block your skillshots
+                if (spell_data.source && spell_data.source->is_valid())
+                {
+                    // Skip ally minions (same team as caster)
+                    if (minion->get_team_id() == spell_data.source->get_team_id())
+                        continue;
+
+                    // Enemy minions and jungle monsters (neutral team) will be checked
+                }
+
                 // Simple point-to-line distance check
                 math::vector3 minion_pos = minion->get_position();
                 math::vector3 line_dir = (end - start).normalized();
@@ -538,6 +549,15 @@ bool CustomPredictionSDK::check_collision_simple(
 
                 if (!is_collision_object(hero, spell_data))
                     continue;
+
+                // CRITICAL: Only check collision with ENEMY heroes
+                // Ally heroes should NOT block your skillshots
+                if (spell_data.source && spell_data.source->is_valid())
+                {
+                    // Skip ally heroes (same team as caster)
+                    if (hero->get_team_id() == spell_data.source->get_team_id())
+                        continue;
+                }
 
                 math::vector3 hero_pos = hero->get_position();
                 math::vector3 line_dir = (end - start).normalized();
