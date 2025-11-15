@@ -1351,6 +1351,17 @@ namespace HybridPred
         // Handle dash prediction - ENDPOINT WITH TIMING VALIDATION (if enabled)
         if (edge_cases.dash.is_dashing && PredictionConfig::get().enable_dash_prediction)
         {
+            // CRITICAL: Check if dash endpoint is within spell range
+            float distance_to_dash_end = source->get_position().distance(edge_cases.dash.dash_end_position);
+
+            if (distance_to_dash_end > spell.range)
+            {
+                // Dash endpoint is OUT OF RANGE - don't waste the spell
+                result.is_valid = false;
+                result.reasoning = "Enemy dashing OUT OF RANGE - dash endpoint too far to hit";
+                return result;
+            }
+
             float spell_travel_time = PhysicsPredictor::compute_arrival_time(
                 source->get_position(),
                 edge_cases.dash.dash_end_position,
