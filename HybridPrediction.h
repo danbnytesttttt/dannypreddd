@@ -194,10 +194,18 @@ namespace HybridPred
 
     /**
      * CS (Creep Score) behavior patterns
-     * NOTE: Currently not implemented - reserved for future enhancement
-     * TODO: Track minion proximity and last-hit timing to predict CS movements
+     * Tracks low-HP minions that enemy might last-hit
      */
-    // struct CSPattern { ... }; // Removed - unimplemented feature
+    struct CSOpportunity
+    {
+        game_object* minion;                // The low-HP minion
+        math::vector3 predicted_aa_position; // Where enemy will stop to AA
+        float confidence;                    // [0,1] How confident we are they'll CS this minion
+        float time_until_cs;                 // Seconds until minion is killable
+
+        CSOpportunity() : minion(nullptr), predicted_aa_position{},
+            confidence(0.f), time_until_cs(0.f) {}
+    };
 
     /**
      * Reachable region (physics-based)
@@ -475,6 +483,15 @@ namespace HybridPred
         static math::vector3 predict_from_behavior(
             const TargetBehaviorTracker& tracker,
             float prediction_time
+        );
+
+        /**
+         * Detect CS (last-hit) opportunities
+         * Finds low-HP minions enemy might walk toward to last-hit
+         */
+        static std::vector<CSOpportunity> detect_cs_opportunities(
+            game_object* target,
+            game_object* source
         );
 
         /**

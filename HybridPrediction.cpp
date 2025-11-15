@@ -1198,17 +1198,7 @@ namespace HybridPred
         const TargetBehaviorTracker& tracker,
         game_object* target)
     {
-        (void)target;  // Unused - reserved for HP pressure and minion CS detection
-
-        // Apply HP pressure - low HP targets tend to retreat
-        // Apply CS patterns - targets approach low HP minions
         // Apply animation locks - targets are stationary during AA/spells
-
-        // This is a simplified version - full implementation would:
-        // 1. Check nearby low HP minions and bias PDF toward them
-        // 2. Check target HP and bias PDF away from threats
-        // 3. Boost probability at current position if animation locked
-
         if (tracker.is_animation_locked())
         {
             const auto& history = tracker.get_history();
@@ -1219,6 +1209,169 @@ namespace HybridPred
                 pdf.normalize();
             }
         }
+
+        // Apply CS prediction - detect if enemy is moving toward low-HP minions
+        if (target && target->is_valid())
+        {
+            std::vector<CSOpportunity> cs_opportunities = detect_cs_opportunities(target);
+
+            // Add CS positions to PDF with moderate weight
+            for (const auto& cs_opp : cs_opportunities)
+            {
+                // Only add to PDF if confidence is reasonable
+                if (cs_opp.confidence >= 0.3f)
+                {
+                    // Weight based on confidence (0.3-1.0 confidence → 1.0-2.0 weight)
+                    float weight = 1.0f + cs_opp.confidence;
+                    pdf.add_weighted_sample(cs_opp.predicted_aa_position, weight);
+                }
+            }
+
+            if (!cs_opportunities.empty())
+            {
+                pdf.normalize();
+            }
+        }
+    }
+
+    std::vector<CSOpportunity> BehaviorPredictor::detect_cs_opportunities(game_object* target)
+    {
+        std::vector<CSOpportunity> opportunities;
+
+        if (!target || !target->is_valid() || !g_sdk)
+        {
+            return opportunities;
+        }
+
+        // Get target's AA damage (base + bonus AD)
+        float target_aa_damage = target->get_attack_damage();
+        float target_aa_range = target->get_attack_range();
+        math::vector3 target_pos = target->get_position();
+
+        // PHASE 1: Basic CS Detection
+        // Find low-HP enemy minions within 500 units of the target
+        constexpr float CS_SEARCH_RADIUS = 500.f;
+
+        auto minion_list = g_sdk->object_manager->get_minions();
+        if (!minion_list)
+        {
+            return opportunities;
+        }
+
+        for (auto& minion : *minion_list)
+        {
+            if (!minion || !minion->is_valid())
+                continue;
+
+            // Only check minions on the OPPOSITE team of the target
+            // (target wants to CS enemy minions, not their own)
+            if (minion->get_team_id() == target->get_team_id())
+                continue;
+
+            // Check if minion is within search radius
+            float distance_to_minion = target_pos.distance(minion->get_position());
+            if (distance_to_minion > CS_SEARCH_RADIUS)
+                continue;
+
+            // Check if minion is low HP (killable in 2-3 autos)
+            float minion_hp = minion->get_health();
+            float minion_max_hp = minion->get_max_health();
+
+            // Low HP threshold: minion can be killed in 2-3 AAs
+            float cs_threshold = target_aa_damage * 3.0f;
+
+            if (minion_hp > cs_threshold)
+                continue;  // Not low enough for CS
+
+            // CONFIDENCE CALCULATION
+            // Higher confidence if:
+            // 1. Minion is very low HP (1 AA away)
+            // 2. Enemy is close to the minion
+            // 3. Enemy is moving toward the minion
+
+            float hp_confidence = 0.f;
+            if (minion_hp <= target_aa_damage * 1.2f)
+            {
+                // Very low (1 AA) - HIGH confidence
+                hp_confidence = 0.8f;
+            }
+            else if (minion_hp <= target_aa_damage * 2.0f)
+            {
+                // Medium low (2 AA) - MEDIUM confidence
+                hp_confidence = 0.5f;
+            }
+            else
+            {
+                // 3 AA range - LOW confidence
+                hp_confidence = 0.3f;
+            }
+
+            // Distance confidence: closer = more likely to CS
+            float distance_confidence = 1.0f - (distance_to_minion / CS_SEARCH_RADIUS);
+            distance_confidence = std::clamp(distance_confidence, 0.f, 1.f);
+
+            // Movement direction confidence: is enemy moving toward minion?
+            math::vector3 to_minion = minion->get_position() - target_pos;
+            to_minion = to_minion.normalize();
+
+            math::vector3 target_velocity = target->get_velocity();
+            float velocity_magnitude = target_velocity.length();
+
+            float direction_confidence = 0.5f;  // Default: neutral
+            if (velocity_magnitude > 10.f)  // If moving
+            {
+                math::vector3 move_direction = target_velocity.normalize();
+                float dot = to_minion.dot(move_direction);
+
+                if (dot > 0.7f)  // Moving toward minion
+                {
+                    direction_confidence = 1.0f;
+                }
+                else if (dot > 0.3f)  // Somewhat toward minion
+                {
+                    direction_confidence = 0.7f;
+                }
+                else if (dot < -0.3f)  // Moving away
+                {
+                    direction_confidence = 0.2f;
+                }
+            }
+
+            // Combined confidence (weighted average)
+            float combined_confidence = (hp_confidence * 0.4f) +
+                                       (distance_confidence * 0.3f) +
+                                       (direction_confidence * 0.3f);
+
+            // Only add opportunities with reasonable confidence
+            if (combined_confidence < 0.25f)
+                continue;
+
+            // CALCULATE PREDICTED AA POSITION
+            // Enemy will walk to AA range of the minion
+            // Position = minion_pos + (direction_to_enemy × aa_range)
+            math::vector3 minion_pos = minion->get_position();
+            math::vector3 from_minion_to_target = (target_pos - minion_pos).normalize();
+            math::vector3 predicted_aa_pos = minion_pos + (from_minion_to_target * target_aa_range);
+
+            // Calculate time until CS (rough estimate based on minion HP decay)
+            // Minions take damage from waves over time (~20-40 DPS depending on wave)
+            // Rough estimate: time_until_cs ≈ (current_hp / target_aa_damage) * avg_aa_cooldown
+            float target_attack_speed = target->get_attack_speed();
+            float aa_cooldown = target_attack_speed > 0.f ? (1.0f / target_attack_speed) : 1.0f;
+            float autos_needed = minion_hp / target_aa_damage;
+            float time_until_cs = autos_needed * aa_cooldown;
+
+            // Create CS opportunity
+            CSOpportunity cs_opp;
+            cs_opp.minion = minion;
+            cs_opp.predicted_aa_position = predicted_aa_pos;
+            cs_opp.confidence = combined_confidence;
+            cs_opp.time_until_cs = time_until_cs;
+
+            opportunities.push_back(cs_opp);
+        }
+
+        return opportunities;
     }
 
     // =========================================================================
@@ -1481,6 +1634,33 @@ namespace HybridPred
                 sprintf_s(boost_msg, "\n[STATIONARY TARGET: %.1fs standing still - minimum hitchance %.0f%%]",
                     duration, stationary_boost * 100.f);
                 spell_result.reasoning += boost_msg;
+            }
+
+            // CS PREDICTION LOGGING
+            // Detect if target is moving toward low-HP minions (CS opportunities)
+            std::vector<CSOpportunity> cs_opportunities = BehaviorPredictor::detect_cs_opportunities(target);
+            if (!cs_opportunities.empty())
+            {
+                // Find the highest confidence CS opportunity
+                float max_cs_confidence = 0.f;
+                const CSOpportunity* best_cs = nullptr;
+
+                for (const auto& cs_opp : cs_opportunities)
+                {
+                    if (cs_opp.confidence > max_cs_confidence)
+                    {
+                        max_cs_confidence = cs_opp.confidence;
+                        best_cs = &cs_opp;
+                    }
+                }
+
+                if (best_cs && max_cs_confidence >= 0.3f)
+                {
+                    char cs_msg[256];
+                    sprintf_s(cs_msg, "\n[CS PREDICTION: Target moving toward low-HP minion - confidence %.0f%%, ETA %.1fs]",
+                        max_cs_confidence * 100.f, best_cs->time_until_cs);
+                    spell_result.reasoning += cs_msg;
+                }
             }
         }
 
