@@ -10,6 +10,23 @@ std::string MyHeroNamePredCore;
 void __fastcall on_update()
 {
     CustomPredictionSDK::update_trackers();
+
+    // Verify plugin is active and prediction SDK is accessible
+    static float last_check_time = 0.f;
+    float current_time = g_sdk->clock_facade->get_game_time();
+    if (current_time - last_check_time >= 10.0f)
+    {
+        // Check if sdk::prediction points to our implementation
+        if (sdk::prediction == &customPrediction)
+        {
+            g_sdk->log_console("[Danny.Prediction] ACTIVE - SDK pointer confirmed");
+        }
+        else
+        {
+            g_sdk->log_console("[Danny.Prediction] WARNING: SDK pointer mismatch! Our prediction is NOT being used!");
+        }
+        last_check_time = current_time;
+    }
 }
 
 namespace Prediction
