@@ -79,11 +79,26 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
 
     pred_sdk::pred_data result{};
 
-    if (!obj || !obj->is_valid() || !spell_data.source || !spell_data.source->is_valid())
+    // Validation: obj must exist and be valid
+    if (!obj || !obj->is_valid())
     {
-        g_sdk->log_console("[Danny.Prediction] EARLY EXIT: Invalid obj or source!");
+        g_sdk->log_console("[Danny.Prediction] EARLY EXIT: Invalid target obj!");
         result.hitchance = pred_sdk::hitchance::any;
         return result;
+    }
+
+    // CRITICAL FIX: If source is null, use local player as default
+    if (!spell_data.source || !spell_data.source->is_valid())
+    {
+        spell_data.source = g_sdk->object_manager->get_local_player();
+        g_sdk->log_console("[Danny.Prediction] WARNING: source was null - using local player");
+
+        if (!spell_data.source || !spell_data.source->is_valid())
+        {
+            g_sdk->log_console("[Danny.Prediction] EARLY EXIT: Could not get valid source!");
+            result.hitchance = pred_sdk::hitchance::any;
+            return result;
+        }
     }
 
     // DEBUG: Log spell details
