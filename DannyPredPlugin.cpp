@@ -11,6 +11,12 @@ void __fastcall on_update()
 {
     CustomPredictionSDK::update_trackers();
 
+    // FORCE-SET the SDK pointer every frame (in case platform overwrites it)
+    if (sdk::prediction != &customPrediction)
+    {
+        sdk::prediction = &customPrediction;
+    }
+
     // Verify plugin is active and prediction SDK is accessible
     static float last_check_time = 0.f;
     float current_time = g_sdk->clock_facade->get_game_time();
@@ -23,7 +29,8 @@ void __fastcall on_update()
         }
         else
         {
-            g_sdk->log_console("[Danny.Prediction] WARNING: SDK pointer mismatch! Our prediction is NOT being used!");
+            g_sdk->log_console("[Danny.Prediction] WARNING: SDK pointer mismatch! Forcing reset...");
+            sdk::prediction = &customPrediction;
         }
         last_check_time = current_time;
     }
@@ -75,9 +82,18 @@ extern "C" __declspec(dllexport) bool PluginLoad(core_sdk* sdk, void** custom_sd
     Prediction::LoadPrediction();
 
     // CRITICAL: Set the global prediction pointer to our implementation
+    char ptr_msg[256];
+    sprintf_s(ptr_msg, "[Danny.Prediction] Before: sdk::prediction = 0x%p, &customPrediction = 0x%p",
+        sdk::prediction, &customPrediction);
+    g_sdk->log_console(ptr_msg);
+
     sdk::prediction = &customPrediction;
 
     // Verify it was set correctly
+    sprintf_s(ptr_msg, "[Danny.Prediction] After:  sdk::prediction = 0x%p, &customPrediction = 0x%p",
+        sdk::prediction, &customPrediction);
+    g_sdk->log_console(ptr_msg);
+
     if (sdk::prediction == &customPrediction)
     {
         g_sdk->log_console("[Danny.Prediction] Global SDK pointer successfully set!");
