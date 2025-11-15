@@ -74,6 +74,19 @@ extern "C" __declspec(dllexport) bool PluginLoad(core_sdk* sdk, void** custom_sd
 
     Prediction::LoadPrediction();
 
+    // CRITICAL: Set the global prediction pointer to our implementation
+    sdk::prediction = &customPrediction;
+
+    // Verify it was set correctly
+    if (sdk::prediction == &customPrediction)
+    {
+        g_sdk->log_console("[Danny.Prediction] Global SDK pointer successfully set!");
+    }
+    else
+    {
+        g_sdk->log_console("[Danny.Prediction] ERROR: Failed to set global SDK pointer!");
+    }
+
     // Confirm successful load
     char load_msg[256];
     sprintf_s(load_msg, "[Danny.Prediction] Successfully loaded for champion: %s", MyHeroNamePredCore.c_str());
