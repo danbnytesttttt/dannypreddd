@@ -323,6 +323,11 @@ namespace HybridPred
         // Opportunistic casting tracking (per spell slot)
         mutable std::unordered_map<int, OpportunityWindow> opportunity_windows_;
 
+        // Stationary target detection (NEW)
+        bool is_currently_stationary_;
+        float stationary_start_time_;
+        static constexpr float STATIONARY_VELOCITY_THRESHOLD = 10.0f; // units/s
+
     public:
         TargetBehaviorTracker(game_object* target);
 
@@ -347,6 +352,11 @@ namespace HybridPred
 
         // Opportunistic casting - get or create window for spell slot
         OpportunityWindow& get_opportunity_window(int spell_slot) const;
+
+        // Stationary target detection (NEW)
+        bool is_stationary() const { return is_currently_stationary_; }
+        float get_stationary_duration(float current_time) const;
+        float get_stationary_hitchance_boost(float current_time) const;
 
     private:
         void update_dodge_pattern();
