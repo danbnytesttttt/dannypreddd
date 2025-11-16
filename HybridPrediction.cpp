@@ -13,7 +13,7 @@
 
 // Reasoning string generation (expensive - disable for production)
 // Set to 0 to disable reasoning strings (saves ~0.02ms per prediction)
-#define HYBRID_PRED_ENABLE_REASONING 0
+#define HYBRID_PRED_ENABLE_REASONING 1
 
 namespace HybridPred
 {
@@ -114,7 +114,8 @@ namespace HybridPred
 
     TargetBehaviorTracker::TargetBehaviorTracker(game_object* target)
         : target_(target), last_update_time_(0.f), last_aa_time_(0.f),
-        cached_prediction_time_(-1.f), cached_move_speed_(-1.f), cached_timestamp_(-1.f)
+        cached_prediction_time_(-1.f), cached_move_speed_(-1.f), cached_timestamp_(-1.f),
+        is_currently_stationary_(false), stationary_start_time_(0.f)
     {
     }
 
@@ -166,6 +167,31 @@ namespace HybridPred
                     post_aa_movement_delays_.push_back(delay);
                     if (post_aa_movement_delays_.size() > 20)
                         post_aa_movement_delays_.erase(post_aa_movement_delays_.begin());
+                }
+            }
+
+            // Stationary target detection (NEW)
+            float velocity_magnitude = snapshot.velocity.magnitude();
+            bool was_stationary = is_currently_stationary_;
+
+            if (velocity_magnitude < STATIONARY_VELOCITY_THRESHOLD)
+            {
+                // Target is stationary
+                if (!was_stationary)
+                {
+                    // Just became stationary - start timer
+                    is_currently_stationary_ = true;
+                    stationary_start_time_ = current_time;
+                }
+                // else: still stationary, timer keeps running
+            }
+            else
+            {
+                // Target is moving - reset stationary state
+                if (was_stationary)
+                {
+                    is_currently_stationary_ = false;
+                    stationary_start_time_ = 0.f;
                 }
             }
         }
@@ -466,6 +492,35 @@ namespace HybridPred
             return math::vector3{};
 
         return movement_history_.back().velocity;
+    }
+
+    float TargetBehaviorTracker::get_stationary_duration(float current_time) const
+    {
+        if (!is_currently_stationary_)
+            return 0.f;
+
+        return current_time - stationary_start_time_;
+    }
+
+    float TargetBehaviorTracker::get_stationary_hitchance_boost(float current_time) const
+    {
+        if (!is_currently_stationary_)
+            return 0.f;  // No boost - target is moving
+
+        float duration = get_stationary_duration(current_time);
+
+        // Scaling: 0.5s = 50%, 1.0s+ = 75%
+        if (duration < 0.5f)
+            return 0.f;  // Less than 0.5s - no boost
+
+        if (duration >= 1.0f)
+            return 0.75f;  // 1.0s or more - 75% minimum hitchance
+
+        // Linear interpolation between 0.5s and 1.0s
+        // duration = 0.5s → 50%
+        // duration = 1.0s → 75%
+        float t = (duration - 0.5f) / 0.5f;  // Normalized to [0,1]
+        return 0.50f + t * 0.25f;  // Interpolate from 50% to 75%
     }
 
     BehaviorPDF TargetBehaviorTracker::build_behavior_pdf(float prediction_time, float move_speed) const
@@ -1296,6 +1351,17 @@ namespace HybridPred
         // Handle dash prediction - ENDPOINT WITH TIMING VALIDATION (if enabled)
         if (edge_cases.dash.is_dashing && PredictionConfig::get().enable_dash_prediction)
         {
+            // CRITICAL: Check if dash endpoint is within spell range
+            float distance_to_dash_end = source->get_position().distance(edge_cases.dash.dash_end_position);
+
+            if (distance_to_dash_end > spell.range)
+            {
+                // Dash endpoint is OUT OF RANGE - don't waste the spell
+                result.is_valid = false;
+                result.reasoning = "Enemy dashing OUT OF RANGE - dash endpoint too far to hit";
+                return result;
+            }
+
             float spell_travel_time = PhysicsPredictor::compute_arrival_time(
                 source->get_position(),
                 edge_cases.dash.dash_end_position,
@@ -1385,6 +1451,15 @@ namespace HybridPred
             spell_result.confidence_score *= edge_cases.confidence_multiplier;
             spell_result.hit_chance *= edge_cases.confidence_multiplier;
 
+            // STATIONARY TARGET BOOST (NEW)
+            // Targets standing still for 0.5s+ get minimum hitchance boost
+            float stationary_boost = tracker.get_stationary_hitchance_boost(g_sdk->clock_facade->get_game_time());
+            if (stationary_boost > 0.f)
+            {
+                // Apply minimum hitchance (not multiplier - use max)
+                spell_result.hit_chance = std::max(spell_result.hit_chance, stationary_boost);
+            }
+
             // Clamp to valid range
             spell_result.confidence_score = std::clamp(spell_result.confidence_score, 0.f, 1.f);
             spell_result.hit_chance = std::clamp(spell_result.hit_chance, 0.f, 1.f);
@@ -1398,6 +1473,15 @@ namespace HybridPred
 
             if (edge_cases.dash.is_dashing && !math::is_zero(edge_cases.dash.dash_end_position))
                 spell_result.reasoning += "\n[DASH PREDICTION: Aiming at dash endpoint]";
+
+            if (stationary_boost > 0.f)
+            {
+                float duration = tracker.get_stationary_duration(g_sdk->clock_facade->get_game_time());
+                char boost_msg[128];
+                sprintf_s(boost_msg, "\n[STATIONARY TARGET: %.1fs standing still - minimum hitchance %.0f%%]",
+                    duration, stationary_boost * 100.f);
+                spell_result.reasoning += boost_msg;
+            }
         }
 
         return spell_result;

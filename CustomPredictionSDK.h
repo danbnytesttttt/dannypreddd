@@ -185,6 +185,12 @@ inline CustomPredictionSDK::~CustomPredictionSDK()
 
 inline pred_sdk::utils* CustomPredictionSDK::util()
 {
+    static bool first_call = true;
+    if (first_call)
+    {
+        g_sdk->log_console("[Danny.Prediction] util() called - someone is using our prediction SDK!");
+        first_call = false;
+    }
     return &utils_;
 }
 
