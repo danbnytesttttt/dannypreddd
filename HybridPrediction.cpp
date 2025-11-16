@@ -1253,12 +1253,7 @@ namespace HybridPred
         constexpr float CS_SEARCH_RADIUS = 500.f;
 
         auto minion_list = g_sdk->object_manager->get_minions();
-        if (!minion_list)
-        {
-            return opportunities;
-        }
-
-        for (auto& minion : *minion_list)
+        for (auto* minion : minion_list)  // std::span can be iterated directly
         {
             if (!minion || !minion->is_valid())
                 continue;
@@ -1310,75 +1305,58 @@ namespace HybridPred
             float distance_confidence = 1.0f - (distance_to_minion / CS_SEARCH_RADIUS);
             distance_confidence = std::clamp(distance_confidence, 0.f, 1.f);
 
-            // TARGET AND PATH DETECTION
-            // Check if enemy is actually targeting this minion or pathing toward it
-            float target_confidence = 0.f;
+            // PATH AND VELOCITY DETECTION
+            // Check if enemy's path or movement goes toward this minion
+            float path_confidence = 0.f;
 
-            // BEST CASE: Enemy is actively auto-attacking this minion
-            game_object* enemy_target = target->get_target();
-            if (enemy_target && enemy_target == minion)
+            // Check if enemy's path goes near this minion
+            auto path = target->get_path();
+            if (!path.empty())
             {
-                // Enemy is directly targeting this minion for AA - VERY HIGH confidence
-                target_confidence = 1.0f;
-            }
-            else
-            {
-                // Check if enemy's path goes near this minion
-                auto path = target->get_path();
-                if (!path.empty())
+                // Get path endpoint (where they're walking to)
+                math::vector3 path_end = path.back();
+                float distance_path_to_minion = path_end.distance(minion->get_position());
+
+                // If path endpoint is within AA range of minion, likely going to CS
+                if (distance_path_to_minion <= target_aa_range + 50.f)
                 {
-                    // Get path endpoint (where they're walking to)
-                    math::vector3 path_end = path.back();
-                    float distance_to_minion = path_end.distance(minion->get_position());
-
-                    // If path endpoint is within AA range of minion, likely going to CS
-                    if (distance_to_minion <= target_aa_range + 50.f)
-                    {
-                        target_confidence = 0.85f;  // HIGH confidence - path goes to minion
-                    }
-                    else if (distance_to_minion <= target_aa_range + 150.f)
-                    {
-                        target_confidence = 0.5f;  // MEDIUM confidence - path goes near minion
-                    }
+                    path_confidence = 0.85f;  // HIGH confidence - path goes to minion
                 }
-
-                // Fallback: check velocity direction if no path data
-                if (target_confidence == 0.f)
+                else if (distance_path_to_minion <= target_aa_range + 150.f)
                 {
-                    math::vector3 to_minion = minion->get_position() - target_pos;
-                    to_minion = to_minion.normalize();
-
-                    math::vector3 target_velocity = target->get_velocity();
-                    float velocity_magnitude = target_velocity.length();
-
-                    if (velocity_magnitude > 10.f)  // If moving
-                    {
-                        math::vector3 move_direction = target_velocity.normalize();
-                        float dot = to_minion.dot(move_direction);
-
-                        if (dot > 0.7f)
-                            target_confidence = 0.6f;  // Moving toward
-                        else if (dot > 0.3f)
-                            target_confidence = 0.4f;  // Somewhat toward
-                        else
-                            target_confidence = 0.2f;  // Not moving toward
-                    }
-                    else
-                    {
-                        target_confidence = 0.3f;  // Stationary - neutral
-                    }
+                    path_confidence = 0.5f;  // MEDIUM confidence - path goes near minion
                 }
             }
+
+            // Fallback: check velocity direction if no path or low path confidence
+            if (path_confidence < 0.5f)
+            {
+                math::vector3 to_minion = minion->get_position() - target_pos;
+                to_minion = to_minion.normalize();
+
+                math::vector3 target_velocity = target->get_velocity();
+                float velocity_magnitude = target_velocity.magnitude();
+
+                if (velocity_magnitude > 10.f)  // If moving
+                {
+                    math::vector3 move_direction = target_velocity.normalize();
+                    float dot = to_minion.dot(move_direction);
+
+                    if (dot > 0.7f && path_confidence < 0.6f)
+                        path_confidence = std::max(path_confidence, 0.6f);  // Moving toward
+                    else if (dot > 0.3f && path_confidence < 0.4f)
+                        path_confidence = std::max(path_confidence, 0.4f);  // Somewhat toward
+                }
+            }
+
+            // If still no confidence, skip this minion
+            if (path_confidence < 0.3f)
+                continue;
 
             // Combined confidence (weighted average)
-            // Heavily weight target/path confidence since it's the most accurate indicator
-            float combined_confidence = (hp_confidence * 0.3f) +
+            float combined_confidence = (hp_confidence * 0.5f) +
                                        (distance_confidence * 0.2f) +
-                                       (target_confidence * 0.5f);
-
-            // Only add opportunities with reasonable confidence
-            if (combined_confidence < 0.25f)
-                continue;
+                                       (path_confidence * 0.3f);
 
             // CALCULATE PREDICTED AA POSITION
             // Enemy will walk to AA range of the minion
@@ -1387,13 +1365,10 @@ namespace HybridPred
             math::vector3 from_minion_to_target = (target_pos - minion_pos).normalize();
             math::vector3 predicted_aa_pos = minion_pos + (from_minion_to_target * target_aa_range);
 
-            // Calculate time until CS (rough estimate based on minion HP decay)
-            // Minions take damage from waves over time (~20-40 DPS depending on wave)
-            // Rough estimate: time_until_cs ≈ (current_hp / target_aa_damage) * avg_aa_cooldown
-            float target_attack_speed = target->get_attack_speed();
-            float aa_cooldown = target_attack_speed > 0.f ? (1.0f / target_attack_speed) : 1.0f;
+            // Estimate time until CS (rough approximation)
+            // Average attack speed ~1.0, so ~1s per auto
             float autos_needed = minion_hp / target_aa_damage;
-            float time_until_cs = autos_needed * aa_cooldown;
+            float time_until_cs = autos_needed * 1.0f;  // Rough estimate: 1s per auto
 
             // Create CS opportunity
             CSOpportunity cs_opp;
