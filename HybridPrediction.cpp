@@ -1310,37 +1310,71 @@ namespace HybridPred
             float distance_confidence = 1.0f - (distance_to_minion / CS_SEARCH_RADIUS);
             distance_confidence = std::clamp(distance_confidence, 0.f, 1.f);
 
-            // Movement direction confidence: is enemy moving toward minion?
-            math::vector3 to_minion = minion->get_position() - target_pos;
-            to_minion = to_minion.normalize();
+            // TARGET AND PATH DETECTION
+            // Check if enemy is actually targeting this minion or pathing toward it
+            float target_confidence = 0.f;
 
-            math::vector3 target_velocity = target->get_velocity();
-            float velocity_magnitude = target_velocity.length();
-
-            float direction_confidence = 0.5f;  // Default: neutral
-            if (velocity_magnitude > 10.f)  // If moving
+            // BEST CASE: Enemy is actively auto-attacking this minion
+            game_object* enemy_target = target->get_target();
+            if (enemy_target && enemy_target == minion)
             {
-                math::vector3 move_direction = target_velocity.normalize();
-                float dot = to_minion.dot(move_direction);
+                // Enemy is directly targeting this minion for AA - VERY HIGH confidence
+                target_confidence = 1.0f;
+            }
+            else
+            {
+                // Check if enemy's path goes near this minion
+                auto path = target->get_path();
+                if (!path.empty())
+                {
+                    // Get path endpoint (where they're walking to)
+                    math::vector3 path_end = path.back();
+                    float distance_to_minion = path_end.distance(minion->get_position());
 
-                if (dot > 0.7f)  // Moving toward minion
-                {
-                    direction_confidence = 1.0f;
+                    // If path endpoint is within AA range of minion, likely going to CS
+                    if (distance_to_minion <= target_aa_range + 50.f)
+                    {
+                        target_confidence = 0.85f;  // HIGH confidence - path goes to minion
+                    }
+                    else if (distance_to_minion <= target_aa_range + 150.f)
+                    {
+                        target_confidence = 0.5f;  // MEDIUM confidence - path goes near minion
+                    }
                 }
-                else if (dot > 0.3f)  // Somewhat toward minion
+
+                // Fallback: check velocity direction if no path data
+                if (target_confidence == 0.f)
                 {
-                    direction_confidence = 0.7f;
-                }
-                else if (dot < -0.3f)  // Moving away
-                {
-                    direction_confidence = 0.2f;
+                    math::vector3 to_minion = minion->get_position() - target_pos;
+                    to_minion = to_minion.normalize();
+
+                    math::vector3 target_velocity = target->get_velocity();
+                    float velocity_magnitude = target_velocity.length();
+
+                    if (velocity_magnitude > 10.f)  // If moving
+                    {
+                        math::vector3 move_direction = target_velocity.normalize();
+                        float dot = to_minion.dot(move_direction);
+
+                        if (dot > 0.7f)
+                            target_confidence = 0.6f;  // Moving toward
+                        else if (dot > 0.3f)
+                            target_confidence = 0.4f;  // Somewhat toward
+                        else
+                            target_confidence = 0.2f;  // Not moving toward
+                    }
+                    else
+                    {
+                        target_confidence = 0.3f;  // Stationary - neutral
+                    }
                 }
             }
 
             // Combined confidence (weighted average)
-            float combined_confidence = (hp_confidence * 0.4f) +
-                                       (distance_confidence * 0.3f) +
-                                       (direction_confidence * 0.3f);
+            // Heavily weight target/path confidence since it's the most accurate indicator
+            float combined_confidence = (hp_confidence * 0.3f) +
+                                       (distance_confidence * 0.2f) +
+                                       (target_confidence * 0.5f);
 
             // Only add opportunities with reasonable confidence
             if (combined_confidence < 0.25f)
