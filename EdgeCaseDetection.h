@@ -706,30 +706,29 @@ namespace EdgeCases
         analysis.windwalls = detect_windwalls();
         analysis.is_slowed = is_slowed(target);
 
-        // Spell shield detection with damage type filtering
-        // Physical damage bypasses spell shields
-        // Magical/True damage is blocked by spell shields
-        // If no damage type specified: aggressive default (assume no block)
-        bool has_spell_shield_buff = has_spell_shield(target);
-        if (has_spell_shield_buff && spell && spell->damage_type_override.has_value())
-        {
-            // Check damage type to determine if shield blocks
-            auto dmg_type = spell->damage_type_override.value();
-            if (dmg_type == dmg_sdk::damage_type::magical || dmg_type == dmg_sdk::damage_type::truedamage)
-            {
-                analysis.has_shield = true;  // Shield will block magical/true damage
-            }
-            else
-            {
-                analysis.has_shield = false;  // Physical damage bypasses shield
-            }
-        }
-        else
-        {
-            // No damage type specified or no spell shield buff - aggressive default
-            // Better to cast and have it blocked than miss opportunities
-            analysis.has_shield = false;
-        }
+        // Spell shield detection - DISABLED until pred_sdk.hpp is synced
+        // TODO: Re-enable once damage_type_override field exists in build directory
+        // Aggressive default: spell shields don't block (better to cast than miss)
+        analysis.has_shield = false;
+
+        // WHEN RE-ENABLING: Copy this code back:
+        // bool has_spell_shield_buff = has_spell_shield(target);
+        // if (has_spell_shield_buff && spell && spell->damage_type_override.has_value())
+        // {
+        //     auto dmg_type = spell->damage_type_override.value();
+        //     if (dmg_type == dmg_sdk::damage_type::magical || dmg_type == dmg_sdk::damage_type::truedamage)
+        //     {
+        //         analysis.has_shield = true;  // Shield will block magical/true damage
+        //     }
+        //     else
+        //     {
+        //         analysis.has_shield = false;  // Physical damage bypasses shield
+        //     }
+        // }
+        // else
+        // {
+        //     analysis.has_shield = false;
+        // }
 
         analysis.is_clone = !is_real_champion(target);
 
