@@ -502,7 +502,10 @@ bool CustomPredictionSDK::check_collision_simple(
         if (collision_type == pred_sdk::collision_type::unit)
         {
             auto minions = g_sdk->object_manager->get_minions();
-            for (auto* minion : minions)
+            if (!minions)
+                continue;
+
+            for (auto* minion : *minions)  // CRITICAL: Dereference pointer to container
             {
                 if (!minion || minion == target_obj)
                     continue;
@@ -542,7 +545,10 @@ bool CustomPredictionSDK::check_collision_simple(
         else if (collision_type == pred_sdk::collision_type::hero)
         {
             auto heroes = g_sdk->object_manager->get_heroes();
-            for (auto* hero : heroes)
+            if (!heroes)
+                continue;
+
+            for (auto* hero : *heroes)  // CRITICAL: Dereference pointer to container
             {
                 if (!hero || hero == target_obj || hero == spell_data.source)
                     continue;
