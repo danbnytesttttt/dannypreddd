@@ -124,6 +124,10 @@ namespace HybridPred
         if (!target_ || !target_->is_valid())
             return;
 
+        // CRASH FIX: Verify g_sdk is valid before dereferencing
+        if (!g_sdk || !g_sdk->clock_facade)
+            return;
+
         float current_time = g_sdk->clock_facade->get_game_time();
 
         // Sample at fixed rate
@@ -240,7 +244,11 @@ namespace HybridPred
             const auto& prev = movement_history_[i - 1];
             const auto& curr = movement_history_[i];
 
-            if (prev.velocity.magnitude() < 10.f || curr.velocity.magnitude() < 10.f)
+            // CRASH FIX: Ensure velocities are significant enough to normalize
+            float prev_mag = prev.velocity.magnitude();
+            float curr_mag = curr.velocity.magnitude();
+
+            if (prev_mag < 10.f || curr_mag < 10.f || prev_mag < EPSILON || curr_mag < EPSILON)
                 continue;
 
             // Compute perpendicular and parallel components
@@ -289,6 +297,10 @@ namespace HybridPred
         // PATTERN EXPIRATION: Reset pattern if no movement updates for 3+ seconds
         if (!movement_history_.empty())
         {
+            // CRASH FIX: Verify g_sdk is valid before dereferencing
+            if (!g_sdk || !g_sdk->clock_facade)
+                return;
+
             float current_time = g_sdk->clock_facade->get_game_time();
             float last_movement_time = movement_history_.back().timestamp;
             constexpr float PATTERN_EXPIRY_DURATION = 3.0f;  // 3 seconds of inactivity
@@ -315,7 +327,11 @@ namespace HybridPred
             const auto& prev = movement_history_[i - 1];
             const auto& curr = movement_history_[i];
 
-            if (prev.velocity.magnitude() < 10.f || curr.velocity.magnitude() < 10.f)
+            // CRASH FIX: Ensure velocities are significant enough to normalize
+            float prev_mag = prev.velocity.magnitude();
+            float curr_mag = curr.velocity.magnitude();
+
+            if (prev_mag < 10.f || curr_mag < 10.f || prev_mag < EPSILON || curr_mag < EPSILON)
                 continue;
 
             math::vector3 prev_dir = prev.velocity.normalized();
@@ -439,7 +455,11 @@ namespace HybridPred
             const auto& mid = movement_history_[i - 1];
             const auto& curr = movement_history_[i];
 
-            if (prev.velocity.magnitude() < 10.f || curr.velocity.magnitude() < 10.f)
+            // CRASH FIX: Ensure both velocities are significant enough to normalize
+            float prev_mag = prev.velocity.magnitude();
+            float curr_mag = curr.velocity.magnitude();
+
+            if (prev_mag < 10.f || curr_mag < 10.f || prev_mag < EPSILON || curr_mag < EPSILON)
                 continue;
 
             // Detect significant direction change
@@ -531,6 +551,14 @@ namespace HybridPred
     {
         // PDF caching: Reuse cached PDF if same frame and similar parameters
         // This avoids rebuilding for Q/W/E/R predictions on the same target in one frame
+
+        // CRASH FIX: Verify g_sdk is valid before dereferencing
+        if (!g_sdk || !g_sdk->clock_facade)
+        {
+            // Return empty PDF if SDK unavailable
+            return BehaviorPDF{};
+        }
+
         float current_time = g_sdk->clock_facade->get_game_time();
         constexpr float TIME_TOLERANCE = 0.05f;  // 50ms tolerance for prediction_time similarity
         constexpr float SPEED_TOLERANCE = 20.f;  // 20 units/s tolerance for move_speed
@@ -1242,7 +1270,8 @@ namespace HybridPred
     {
         std::vector<CSOpportunity> opportunities;
 
-        if (!target || !target->is_valid() || !g_sdk)
+        // CRASH FIX: Comprehensive SDK validation
+        if (!target || !target->is_valid() || !g_sdk || !g_sdk->object_manager)
         {
             return opportunities;
         }
@@ -1259,6 +1288,12 @@ namespace HybridPred
         constexpr float CS_SEARCH_RADIUS = 500.f;
 
         auto minion_list = g_sdk->object_manager->get_minions();
+
+        // CRASH FIX: Verify get_minions returned valid span
+        if (minion_list.empty())
+        {
+            return opportunities;
+        }
         for (auto* minion : minion_list)  // std::span can be iterated directly
         {
             if (!minion || !minion->is_valid())
@@ -1640,7 +1675,12 @@ namespace HybridPred
 
             // STATIONARY TARGET BOOST (NEW)
             // Targets standing still for 0.5s+ get minimum hitchance boost
-            float stationary_boost = tracker.get_stationary_hitchance_boost(g_sdk->clock_facade->get_game_time());
+            float stationary_boost = 0.f;
+            if (g_sdk && g_sdk->clock_facade)
+            {
+                stationary_boost = tracker.get_stationary_hitchance_boost(g_sdk->clock_facade->get_game_time());
+            }
+
             if (stationary_boost > 0.f)
             {
                 // Apply minimum hitchance (not multiplier - use max)

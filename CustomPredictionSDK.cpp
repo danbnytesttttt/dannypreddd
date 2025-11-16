@@ -5,12 +5,22 @@
 #include <limits>
 
 // =============================================================================
+// DEBUG LOGGING CONTROL
+// =============================================================================
+// Set to true to enable verbose debug logging (every prediction call)
+// Set to false for production (only logs errors/warnings)
+constexpr bool ENABLE_VERBOSE_LOGGING = false;
+
+// =============================================================================
 // TARGETED SPELL PREDICTION
 // =============================================================================
 
 pred_sdk::pred_data CustomPredictionSDK::targetted(pred_sdk::spell_data spell_data)
 {
-    g_sdk->log_console("[Danny.Prediction] targetted() called (point-and-click spell)");
+    if (ENABLE_VERBOSE_LOGGING)
+    {
+        g_sdk->log_console("[Danny.Prediction] targetted() called (point-and-click spell)");
+    }
 
     pred_sdk::pred_data result{};
 
@@ -77,7 +87,10 @@ bool CustomPredictionSDK::ensure_source(pred_sdk::spell_data& spell_data)
 
 pred_sdk::pred_data CustomPredictionSDK::predict(pred_sdk::spell_data spell_data)
 {
-    g_sdk->log_console("[Danny.Prediction] Auto-target predict() called");
+    if (ENABLE_VERBOSE_LOGGING)
+    {
+        g_sdk->log_console("[Danny.Prediction] Auto-target predict() called");
+    }
 
     // Ensure source is valid (centralized fallback logic)
     if (!ensure_source(spell_data))
@@ -92,15 +105,21 @@ pred_sdk::pred_data CustomPredictionSDK::predict(pred_sdk::spell_data spell_data
 
     if (!best_target)
     {
-        g_sdk->log_console("[Danny.Prediction] Auto-target: No valid target found");
+        if (ENABLE_VERBOSE_LOGGING)
+        {
+            g_sdk->log_console("[Danny.Prediction] Auto-target: No valid target found");
+        }
         pred_sdk::pred_data result{};
         result.hitchance = pred_sdk::hitchance::any;
         return result;
     }
 
-    char debug_msg[256];
-    sprintf_s(debug_msg, "[Danny.Prediction] Auto-target selected: %s", best_target->get_char_name().c_str());
-    g_sdk->log_console(debug_msg);
+    if (ENABLE_VERBOSE_LOGGING)
+    {
+        char debug_msg[256];
+        sprintf_s(debug_msg, "[Danny.Prediction] Auto-target selected: %s", best_target->get_char_name().c_str());
+        g_sdk->log_console(debug_msg);
+    }
 
     return predict(best_target, spell_data);
 }
@@ -111,18 +130,23 @@ pred_sdk::pred_data CustomPredictionSDK::predict(pred_sdk::spell_data spell_data
 
 pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spell_data spell_data)
 {
-    // DEBUG: Log immediately to detect calls
-    char debug_msg[512];
-    sprintf_s(debug_msg, "[Danny.Prediction] predict(target) called - obj=0x%p source=0x%p",
-        obj, spell_data.source);
-    g_sdk->log_console(debug_msg);
-
     pred_sdk::pred_data result{};
+    char debug_msg[512];
+
+    if (ENABLE_VERBOSE_LOGGING)
+    {
+        sprintf_s(debug_msg, "[Danny.Prediction] predict(target) called - obj=0x%p source=0x%p",
+            obj, spell_data.source);
+        g_sdk->log_console(debug_msg);
+    }
 
     // Validation: obj must exist and be valid
     if (!obj || !obj->is_valid())
     {
-        g_sdk->log_console("[Danny.Prediction] EARLY EXIT: Invalid target obj!");
+        if (ENABLE_VERBOSE_LOGGING)
+        {
+            g_sdk->log_console("[Danny.Prediction] EARLY EXIT: Invalid target obj!");
+        }
         result.hitchance = pred_sdk::hitchance::any;
         return result;
     }
@@ -130,32 +154,37 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     // Ensure source is valid (centralized fallback logic)
     if (!ensure_source(spell_data))
     {
-        g_sdk->log_console("[Danny.Prediction] EARLY EXIT: Could not get valid source!");
+        // ERROR: Always log source failures (critical issue)
+        g_sdk->log_console("[Danny.Prediction] ERROR: Could not get valid source!");
         result.hitchance = pred_sdk::hitchance::any;
         return result;
     }
 
-    // DEBUG: Log spell details
-    sprintf_s(debug_msg, "[Danny.Prediction] Spell: Range=%.0f Radius=%.0f Delay=%.2f Speed=%.0f Type=%d",
-        spell_data.range, spell_data.radius, spell_data.delay, spell_data.projectile_speed,
-        static_cast<int>(spell_data.spell_type));
-    g_sdk->log_console(debug_msg);
+    if (ENABLE_VERBOSE_LOGGING)
+    {
+        sprintf_s(debug_msg, "[Danny.Prediction] Spell: Range=%.0f Radius=%.0f Delay=%.2f Speed=%.0f Type=%d",
+            spell_data.range, spell_data.radius, spell_data.delay, spell_data.projectile_speed,
+            static_cast<int>(spell_data.spell_type));
+        g_sdk->log_console(debug_msg);
+    }
 
     // Use hybrid prediction system
     HybridPred::HybridPredictionResult hybrid_result =
         HybridPred::PredictionManager::predict(spell_data.source, obj, spell_data);
 
-    // DEBUG: Log prediction details
-    sprintf_s(debug_msg, "[Danny.Prediction] Target: %s | Valid: %s | HitChance: %.2f%% (%.4f raw)",
-        obj->get_char_name().c_str(),
-        hybrid_result.is_valid ? "YES" : "NO",
-        hybrid_result.hit_chance * 100.f,
-        hybrid_result.hit_chance);
-    g_sdk->log_console(debug_msg);
+    if (ENABLE_VERBOSE_LOGGING)
+    {
+        sprintf_s(debug_msg, "[Danny.Prediction] Target: %s | Valid: %s | HitChance: %.2f%% (%.4f raw)",
+            obj->get_char_name().c_str(),
+            hybrid_result.is_valid ? "YES" : "NO",
+            hybrid_result.hit_chance * 100.f,
+            hybrid_result.hit_chance);
+        g_sdk->log_console(debug_msg);
+    }
 
     if (!hybrid_result.is_valid)
     {
-        if (!hybrid_result.reasoning.empty())
+        if (ENABLE_VERBOSE_LOGGING && !hybrid_result.reasoning.empty())
         {
             sprintf_s(debug_msg, "[Danny.Prediction] Reason invalid: %s", hybrid_result.reasoning.c_str());
             g_sdk->log_console(debug_msg);
@@ -189,21 +218,32 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     }
 
     bool should_cast = (result.hitchance >= spell_data.expected_hitchance);
-    sprintf_s(debug_msg, "[Danny.Prediction] Hitchance: %s | Threshold: %s | SHOULD_CAST: %s",
-        hc_name, thresh_name, should_cast ? "YES!!!" : "NO (too low)");
-    g_sdk->log_console(debug_msg);
 
-    if (should_cast) {
-        sprintf_s(debug_msg, "[Danny.Prediction] >>> CAST POSITION: (%.1f, %.1f, %.1f) <<<",
-            result.cast_position.x, result.cast_position.y, result.cast_position.z);
+    if (ENABLE_VERBOSE_LOGGING)
+    {
+        sprintf_s(debug_msg, "[Danny.Prediction] Hitchance: %s | Threshold: %s | SHOULD_CAST: %s",
+            hc_name, thresh_name, should_cast ? "YES!!!" : "NO (too low)");
         g_sdk->log_console(debug_msg);
-    } else {
+    }
+
+    if (should_cast)
+    {
+        if (ENABLE_VERBOSE_LOGGING)
+        {
+            sprintf_s(debug_msg, "[Danny.Prediction] >>> CAST POSITION: (%.1f, %.1f, %.1f) <<<",
+                result.cast_position.x, result.cast_position.y, result.cast_position.z);
+            g_sdk->log_console(debug_msg);
+        }
+    }
+    else
+    {
         // CRITICAL: Mark prediction as invalid if hitchance doesn't meet threshold
         // This prevents the spell wrapper from casting when hitchance is too low
         result.is_valid = false;
 
-        // Suggest if threshold might be too conservative
-        if (spell_data.expected_hitchance >= pred_sdk::hitchance::very_high) {
+        // HINT: Suggest if threshold might be too conservative (only in verbose mode)
+        if (ENABLE_VERBOSE_LOGGING && spell_data.expected_hitchance >= pred_sdk::hitchance::very_high)
+        {
             g_sdk->log_console("[Danny.Prediction] HINT: Threshold is VERY_HIGH or GUARANTEED - try lowering to HIGH or MEDIUM in script settings");
         }
     }
@@ -237,15 +277,21 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         {
             // CRITICAL: For non-piercing skillshots, ANY collision invalidates the prediction
             // Don't just reduce hitchance - completely block the cast
-            g_sdk->log_console("[Danny.Prediction] COLLISION DETECTED - Minion blocking path!");
-            g_sdk->log_console("[Danny.Prediction] Invalidating prediction - cannot hit through minions");
+            if (ENABLE_VERBOSE_LOGGING)
+            {
+                g_sdk->log_console("[Danny.Prediction] COLLISION DETECTED - Minion blocking path!");
+                g_sdk->log_console("[Danny.Prediction] Invalidating prediction - cannot hit through minions");
+            }
             result.is_valid = false;
             result.hitchance = pred_sdk::hitchance::any;
             return result;
         }
         else
         {
-            g_sdk->log_console("[Danny.Prediction] No collision detected - path is clear");
+            if (ENABLE_VERBOSE_LOGGING)
+            {
+                g_sdk->log_console("[Danny.Prediction] No collision detected - path is clear");
+            }
         }
     }
 
