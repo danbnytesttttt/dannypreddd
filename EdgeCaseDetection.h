@@ -2,7 +2,6 @@
 
 #include "sdk.hpp"
 #include "StandalonePredictionSDK.h"  // MUST be included AFTER sdk.hpp for compatibility
-#include "pred_sdk.hpp"  // For spell_data and damage_type_override
 #include "PredictionConfig.h"
 #include <vector>
 #include <string>
@@ -683,9 +682,8 @@ namespace EdgeCases
      *
      * @param target The target to analyze
      * @param source The source of the spell (optional)
-     * @param spell Optional spell data to check damage type for spell shield blocking
      */
-    inline EdgeCaseAnalysis analyze_target(game_object* target, game_object* source = nullptr, const pred_sdk::spell_data* spell = nullptr)
+    inline EdgeCaseAnalysis analyze_target(game_object* target, game_object* source = nullptr)
     {
         EdgeCaseAnalysis analysis;
 
@@ -705,30 +703,10 @@ namespace EdgeCases
         analysis.windwalls = detect_windwalls();
         analysis.is_slowed = is_slowed(target);
 
-        // Spell shield detection with damage type consideration
-        // Physical damage spells bypass spell shields (Banshee, Sivir E, Morgana E, etc.)
-        bool has_spell_shield_buff = has_spell_shield(target);
-        if (has_spell_shield_buff && spell && spell->damage_type_override.has_value())
-        {
-            // Check if this is magical or true damage (blocked by spell shields)
-            if (spell->damage_type_override.value() == dmg_sdk::damage_type::magical ||
-                spell->damage_type_override.value() == dmg_sdk::damage_type::truedamage)
-            {
-                // Magical/True damage is blocked by spell shields
-                analysis.has_shield = true;
-            }
-            else
-            {
-                // Physical damage bypasses spell shields
-                analysis.has_shield = false;
-            }
-        }
-        else
-        {
-            // No damage type specified - assume NOT blocked (aggressive default)
-            // Better to cast and have it blocked than miss opportunities
-            analysis.has_shield = false;
-        }
+        // Spell shield detection - DISABLED for now
+        // Aggressive default: spell shields don't block
+        // Better to cast and have it blocked than miss opportunities
+        analysis.has_shield = false;
 
         analysis.is_clone = !is_real_champion(target);
 
