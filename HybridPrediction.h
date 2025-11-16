@@ -156,11 +156,10 @@ namespace HybridPred
         bool is_casting;
         bool is_dashing;
         bool is_cced;
-        float hp_percent;
 
         MovementSnapshot() : position{}, velocity{}, timestamp(0.f),
             is_auto_attacking(false), is_casting(false), is_dashing(false),
-            is_cced(false), hp_percent(100.f) {}
+            is_cced(false) {}
     };
 
     /**

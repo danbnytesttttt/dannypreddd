@@ -224,11 +224,18 @@ math::vector3 CustomPredictionSDK::predict_on_path(game_object* obj, float time,
         if (!path.empty())
         {
             math::vector3 waypoint = path[path.size() - 1];
-            math::vector3 direction = (waypoint - position).normalized();
-            return position + direction * (obj->get_move_speed() * time);
+            math::vector3 to_waypoint = waypoint - position;
+            float distance_to_waypoint = to_waypoint.magnitude();
+
+            // SAFETY: Check magnitude before normalizing
+            if (distance_to_waypoint > EPSILON)
+            {
+                math::vector3 direction = to_waypoint.normalized();
+                return position + direction * (obj->get_move_speed() * time);
+            }
         }
 
-        // No path, just return current position
+        // No path or zero-distance waypoint, just return current position
         return position;
     }
 
@@ -461,7 +468,11 @@ float CustomPredictionSDK::calculate_target_score(
         return 0.f;
 
     // Analyze edge cases for this target
-    EdgeCases::EdgeCaseAnalysis edge_cases = EdgeCases::analyze_target(target, spell_data.source);
+    EdgeCases::EdgeCaseAnalysis edge_cases = EdgeCases::analyze_target(
+        target,
+        spell_data.source,
+        const_cast<pred_sdk::spell_data*>(&spell_data)
+    );
 
     // Filter out invalid targets
     if (edge_cases.is_clone)
@@ -523,11 +534,17 @@ bool CustomPredictionSDK::check_collision_simple(
 
                 // Simple point-to-line distance check
                 math::vector3 minion_pos = minion->get_position();
-                math::vector3 line_dir = (end - start).normalized();
+                math::vector3 line_vec = end - start;
+                float line_length = line_vec.magnitude();
+
+                // SAFETY: Check magnitude before normalizing
+                if (line_length < EPSILON)
+                    continue;  // Zero-length line, skip collision check
+
+                math::vector3 line_dir = line_vec.normalized();
                 math::vector3 to_minion = minion_pos - start;
 
                 float projection = to_minion.dot(line_dir);
-                float line_length = start.distance(end);
 
                 if (projection < 0.f || projection > line_length)
                     continue;
@@ -560,11 +577,17 @@ bool CustomPredictionSDK::check_collision_simple(
                 }
 
                 math::vector3 hero_pos = hero->get_position();
-                math::vector3 line_dir = (end - start).normalized();
+                math::vector3 line_vec = end - start;
+                float line_length = line_vec.magnitude();
+
+                // SAFETY: Check magnitude before normalizing
+                if (line_length < EPSILON)
+                    continue;  // Zero-length line, skip collision check
+
+                math::vector3 line_dir = line_vec.normalized();
                 math::vector3 to_hero = hero_pos - start;
 
                 float projection = to_hero.dot(line_dir);
-                float line_length = start.distance(end);
 
                 if (projection < 0.f || projection > line_length)
                     continue;

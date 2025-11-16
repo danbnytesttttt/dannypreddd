@@ -142,10 +142,6 @@ namespace HybridPred
             target_->has_buff_of_type(buff_type::fear) || target_->has_buff_of_type(buff_type::snare) || target_->has_buff_of_type(buff_type::taunt) ||
             target_->has_buff_of_type(buff_type::suppression) || target_->has_buff_of_type(buff_type::knockup);
 
-        // Safety: Prevent division by zero
-        float max_hp = target_->get_max_hp();
-        snapshot.hp_percent = (max_hp > 0.f) ? (target_->get_hp() / max_hp) * 100.f : 100.f;
-
         // Compute velocity if we have previous snapshot
         if (!movement_history_.empty())
         {
@@ -370,10 +366,14 @@ namespace HybridPred
                 if (last_juke != 0 && !movement_history_.empty())
                 {
                     const auto& latest = movement_history_.back();
-                    math::vector3 vel_dir = latest.velocity.normalized();
-                    // Perpendicular: 90° rotation in XZ plane
-                    math::vector3 perpendicular(-vel_dir.z, 0.f, vel_dir.x);
-                    dodge_pattern_.predicted_next_direction = perpendicular * static_cast<float>(-last_juke);
+                    // SAFETY: Check magnitude before normalizing
+                    if (latest.velocity.magnitude() > EPSILON)
+                    {
+                        math::vector3 vel_dir = latest.velocity.normalized();
+                        // Perpendicular: 90° rotation in XZ plane
+                        math::vector3 perpendicular(-vel_dir.z, 0.f, vel_dir.x);
+                        dodge_pattern_.predicted_next_direction = perpendicular * static_cast<float>(-last_juke);
+                    }
                 }
             }
             // Detect repeating sequence (e.g., L-L-R-L-L-R)
@@ -405,9 +405,13 @@ namespace HybridPred
                     if (next_in_sequence != 0 && !movement_history_.empty())
                     {
                         const auto& latest = movement_history_.back();
-                        math::vector3 vel_dir = latest.velocity.normalized();
-                        math::vector3 perpendicular(-vel_dir.z, 0.f, vel_dir.x);
-                        dodge_pattern_.predicted_next_direction = perpendicular * static_cast<float>(next_in_sequence);
+                        // SAFETY: Check magnitude before normalizing
+                        if (latest.velocity.magnitude() > EPSILON)
+                        {
+                            math::vector3 vel_dir = latest.velocity.normalized();
+                            math::vector3 perpendicular(-vel_dir.z, 0.f, vel_dir.x);
+                            dodge_pattern_.predicted_next_direction = perpendicular * static_cast<float>(next_in_sequence);
+                        }
                     }
                 }
             }
@@ -1333,20 +1337,27 @@ namespace HybridPred
             // Fallback: check velocity direction if no path or low path confidence
             if (path_confidence < 0.5f)
             {
-                math::vector3 to_minion = (minion->get_position() - target_pos).normalized();
+                math::vector3 to_minion_vec = minion->get_position() - target_pos;
+                float distance_to_minion = to_minion_vec.magnitude();
 
-                math::vector3 target_velocity = target->get_velocity();
-                float velocity_magnitude = target_velocity.magnitude();
-
-                if (velocity_magnitude > 10.f)  // If moving
+                // SAFETY: Check magnitude before normalizing
+                if (distance_to_minion > EPSILON)
                 {
-                    math::vector3 move_direction = target_velocity.normalized();
-                    float dot = to_minion.dot(move_direction);
+                    math::vector3 to_minion = to_minion_vec.normalized();
 
-                    if (dot > 0.7f && path_confidence < 0.6f)
-                        path_confidence = std::max(path_confidence, 0.6f);  // Moving toward
-                    else if (dot > 0.3f && path_confidence < 0.4f)
-                        path_confidence = std::max(path_confidence, 0.4f);  // Somewhat toward
+                    math::vector3 target_velocity = target->get_velocity();
+                    float velocity_magnitude = target_velocity.magnitude();
+
+                    if (velocity_magnitude > 10.f)  // If moving
+                    {
+                        math::vector3 move_direction = target_velocity.normalized();
+                        float dot = to_minion.dot(move_direction);
+
+                        if (dot > 0.7f && path_confidence < 0.6f)
+                            path_confidence = std::max(path_confidence, 0.6f);  // Moving toward
+                        else if (dot > 0.3f && path_confidence < 0.4f)
+                            path_confidence = std::max(path_confidence, 0.4f);  // Somewhat toward
+                    }
                 }
             }
 
@@ -1363,8 +1374,21 @@ namespace HybridPred
             // Enemy will walk to AA range of the minion
             // Position = minion_pos + (direction_to_enemy × aa_range)
             math::vector3 minion_pos = minion->get_position();
-            math::vector3 from_minion_to_target = (target_pos - minion_pos).normalized();
-            math::vector3 predicted_aa_pos = minion_pos + (from_minion_to_target * target_aa_range);
+            math::vector3 from_minion_vec = target_pos - minion_pos;
+            float dist_to_target = from_minion_vec.magnitude();
+
+            // SAFETY: Check magnitude before normalizing
+            math::vector3 predicted_aa_pos;
+            if (dist_to_target > EPSILON)
+            {
+                math::vector3 from_minion_to_target = from_minion_vec.normalized();
+                predicted_aa_pos = minion_pos + (from_minion_to_target * target_aa_range);
+            }
+            else
+            {
+                // Target is at minion position - use target position as fallback
+                predicted_aa_pos = target_pos;
+            }
 
             // Estimate time until CS (rough approximation)
             // Average attack speed ~1.0, so ~1s per auto
@@ -1414,7 +1438,7 @@ namespace HybridPred
         // EDGE CASE DETECTION AND HANDLING
         // =============================================================================
 
-        EdgeCases::EdgeCaseAnalysis edge_cases = EdgeCases::analyze_target(target, source);
+        EdgeCases::EdgeCaseAnalysis edge_cases = EdgeCases::analyze_target(target, source, &spell);
 
         // Filter out invalid targets
         if (edge_cases.is_clone)
