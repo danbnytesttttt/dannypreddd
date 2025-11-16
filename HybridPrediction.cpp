@@ -1745,12 +1745,14 @@ namespace HybridPred
         result.confidence_score = confidence;
 
         // Step 5: Find optimal cast position
+        size_t sample_count = tracker.get_history().size();
         math::vector3 optimal_cast_pos = find_optimal_cast_position(
             reachable_region,
             behavior_pdf,
             source->get_position(),
             spell.radius,
-            confidence
+            confidence,
+            sample_count
         );
 
         result.cast_position = optimal_cast_pos;
@@ -1772,7 +1774,6 @@ namespace HybridPred
         result.behavior_contribution = behavior_prob;
 
         // Weighted geometric fusion (trust physics more when behavior samples are sparse)
-        size_t sample_count = tracker.get_history().size();
         result.hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count);
 
         // Clamp to [0, 1]
@@ -1938,7 +1939,8 @@ namespace HybridPred
         const BehaviorPDF& behavior_pdf,
         const math::vector3& source_pos,
         float projectile_radius,
-        float confidence)
+        float confidence,
+        size_t sample_count)
     {
         // Grid search over reachable region
         constexpr int GRID_SEARCH_SIZE = 16;
@@ -1961,7 +1963,8 @@ namespace HybridPred
                     reachable_region,
                     behavior_pdf,
                     projectile_radius,
-                    confidence
+                    confidence,
+                    sample_count
                 );
 
                 if (score > best_score)
@@ -1992,7 +1995,8 @@ namespace HybridPred
                     reachable_region,
                     behavior_pdf,
                     projectile_radius,
-                    confidence
+                    confidence,
+                    sample_count
                 );
 
                 float angle_weight = score - best_score;
@@ -2008,7 +2012,8 @@ namespace HybridPred
                     reachable_region,
                     behavior_pdf,
                     projectile_radius,
-                    confidence
+                    confidence,
+                    sample_count
                 );
             }
         }
@@ -2021,7 +2026,8 @@ namespace HybridPred
         const ReachableRegion& reachable_region,
         const BehaviorPDF& behavior_pdf,
         float projectile_radius,
-        float confidence)
+        float confidence,
+        size_t sample_count)
     {
         float physics_prob = PhysicsPredictor::compute_physics_hit_probability(
             point,
@@ -2035,7 +2041,10 @@ namespace HybridPred
             behavior_pdf
         );
 
-        return physics_prob * behavior_prob * confidence;
+        // Use adaptive weighted fusion (consistent with linear/capsule/vector spells)
+        // This was previously: physics_prob * behavior_prob * confidence
+        // which is equivalent to 50/50 weighting with simple product instead of geometric mean
+        return fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count);
     }
 
     // =========================================================================

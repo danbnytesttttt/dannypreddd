@@ -41,12 +41,51 @@ pred_sdk::pred_data CustomPredictionSDK::targetted(pred_sdk::spell_data spell_da
 }
 
 // =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+bool CustomPredictionSDK::ensure_source(pred_sdk::spell_data& spell_data)
+{
+    // If source is already valid, nothing to do
+    if (spell_data.source && spell_data.source->is_valid())
+        return true;
+
+    // Warn once about missing source
+    static bool warned_once = false;
+    if (!warned_once)
+    {
+        g_sdk->log_console("[Danny.Prediction] WARNING: source was null - using local player (will not warn again)");
+        warned_once = true;
+    }
+
+    // Fallback to local player
+    spell_data.source = g_sdk->object_manager->get_local_player();
+
+    // Verify fallback succeeded
+    if (!spell_data.source || !spell_data.source->is_valid())
+    {
+        g_sdk->log_console("[Danny.Prediction] ERROR: Could not get valid source (even after local player fallback)!");
+        return false;
+    }
+
+    return true;
+}
+
+// =============================================================================
 // SKILLSHOT PREDICTION (AUTO-TARGET)
 // =============================================================================
 
 pred_sdk::pred_data CustomPredictionSDK::predict(pred_sdk::spell_data spell_data)
 {
     g_sdk->log_console("[Danny.Prediction] Auto-target predict() called");
+
+    // Ensure source is valid (centralized fallback logic)
+    if (!ensure_source(spell_data))
+    {
+        pred_sdk::pred_data result{};
+        result.hitchance = pred_sdk::hitchance::any;
+        return result;
+    }
 
     // Auto-select best target
     game_object* best_target = get_best_target(spell_data);
@@ -88,24 +127,12 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         return result;
     }
 
-    // CRITICAL FIX: If source is null, use local player as default
-    if (!spell_data.source || !spell_data.source->is_valid())
+    // Ensure source is valid (centralized fallback logic)
+    if (!ensure_source(spell_data))
     {
-        static bool warned_once = false;
-        if (!warned_once)
-        {
-            g_sdk->log_console("[Danny.Prediction] WARNING: source was null - using local player (will not warn again)");
-            warned_once = true;
-        }
-
-        spell_data.source = g_sdk->object_manager->get_local_player();
-
-        if (!spell_data.source || !spell_data.source->is_valid())
-        {
-            g_sdk->log_console("[Danny.Prediction] EARLY EXIT: Could not get valid source!");
-            result.hitchance = pred_sdk::hitchance::any;
-            return result;
-        }
+        g_sdk->log_console("[Danny.Prediction] EARLY EXIT: Could not get valid source!");
+        result.hitchance = pred_sdk::hitchance::any;
+        return result;
     }
 
     // DEBUG: Log spell details

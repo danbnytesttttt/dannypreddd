@@ -555,7 +555,8 @@ namespace HybridPred
             const BehaviorPDF& behavior_pdf,
             const math::vector3& source_pos,
             float projectile_radius,
-            float confidence
+            float confidence,
+            size_t sample_count  // For adaptive fusion weighting
         );
 
     private:
@@ -629,7 +630,8 @@ namespace HybridPred
             const ReachableRegion& reachable_region,
             const BehaviorPDF& behavior_pdf,
             float projectile_radius,
-            float confidence
+            float confidence,
+            size_t sample_count  // For adaptive fusion weighting
         );
 
         // Cone geometry helpers

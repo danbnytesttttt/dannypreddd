@@ -145,6 +145,12 @@ private:
     pred_sdk::hitchance convert_hit_chance_to_enum(float hit_chance);
 
     /**
+     * Ensure spell_data.source is valid, fallback to local player if not
+     * Returns true if source is valid after this call
+     */
+    bool ensure_source(pred_sdk::spell_data& spell_data);
+
+    /**
      * Get best target for spell using hybrid prediction
      */
     game_object* get_best_target(const pred_sdk::spell_data& spell_data);
