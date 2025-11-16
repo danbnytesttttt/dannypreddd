@@ -97,8 +97,9 @@ public:
         std::function< bool( game_object* ) > additional_target_selection_checks{}; // custom function for target selection checks, example: target with specific buff(s) only
 
         // Optional: Specify damage type for spell shield handling
-        // If not set (nullptr), spell shields will block the ability (safe default)
-        // Set to dmg_sdk::damage_type::physical to bypass spell shields (Banshee, Sivir E, etc)
+        // If not set, spell shields will NOT block (aggressive default - better to cast than miss)
+        // Set to dmg_sdk::damage_type::magical/truedamage to respect spell shields
+        // Set to dmg_sdk::damage_type::physical to explicitly bypass spell shields
         std::optional<dmg_sdk::damage_type> damage_type_override{};
     };
 

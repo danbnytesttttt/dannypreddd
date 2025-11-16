@@ -709,22 +709,24 @@ namespace EdgeCases
         bool has_spell_shield_buff = has_spell_shield(target);
         if (has_spell_shield_buff && spell && spell->damage_type_override.has_value())
         {
-            // Check if this is a physical damage spell
-            if (spell->damage_type_override.value() == dmg_sdk::damage_type::physical)
-            {
-                // Physical damage bypasses spell shields
-                analysis.has_shield = false;
-            }
-            else
+            // Check if this is magical or true damage (blocked by spell shields)
+            if (spell->damage_type_override.value() == dmg_sdk::damage_type::magical ||
+                spell->damage_type_override.value() == dmg_sdk::damage_type::truedamage)
             {
                 // Magical/True damage is blocked by spell shields
                 analysis.has_shield = true;
             }
+            else
+            {
+                // Physical damage bypasses spell shields
+                analysis.has_shield = false;
+            }
         }
         else
         {
-            // No damage type specified - assume blocked (safe default)
-            analysis.has_shield = has_spell_shield_buff;
+            // No damage type specified - assume NOT blocked (aggressive default)
+            // Better to cast and have it blocked than miss opportunities
+            analysis.has_shield = false;
         }
 
         analysis.is_clone = !is_real_champion(target);
