@@ -181,7 +181,28 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         }
     }
 
-    // Check collision if required
+    // =============================================================================
+    // COLLISION DETECTION
+    // =============================================================================
+    // Design decision: Collision is checked AFTER prediction, not integrated into hit_chance.
+    //
+    // Why this approach:
+    //   1. Separation of concerns: Physics/behavior prediction focuses on target movement,
+    //      collision is an environmental constraint checked separately.
+    //   2. Binary decision: Either spell is blocked (invalid) or it's not (valid).
+    //      Probabilistic collision ("30% chance minion blocks") is complex and unreliable.
+    //   3. Performance: Collision check is expensive (iterate all minions/heroes), so we
+    //      only do it once after finding the optimal cast position.
+    //
+    // Alternative approach (not implemented):
+    //   - Compute collision probability and multiply into hit_chance
+    //   - Pro: More granular decision-making (cast if low collision risk)
+    //   - Con: Complex (minions move, prediction timing matters), CPU-intensive
+    //
+    // Current approach works well for:
+    //   - Clear shots: Collision check passes, full prediction used
+    //   - Blocked shots: Immediately rejected, no wasted cast
+    // =============================================================================
     if (!spell_data.forbidden_collisions.empty())
     {
         pred_sdk::collision_ret collision = collides(result.cast_position, spell_data, obj);

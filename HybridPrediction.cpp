@@ -2188,8 +2188,6 @@ namespace HybridPred
         TargetBehaviorTracker& tracker,
         const EdgeCases::EdgeCaseAnalysis& edge_cases)
     {
-        (void)spell;  // Targeted spells ignore most spell parameters
-
         HybridPredictionResult result;
 
         if (!source || !target || !source->is_valid() || !target->is_valid())
@@ -2206,12 +2204,22 @@ namespace HybridPred
             return result;
         }
 
+        // Range check - don't return "guaranteed hit" for out-of-range targets
+        float distance = (target->get_position() - source->get_position()).magnitude();
+        constexpr float CAST_BUFFER = 50.f;  // Small buffer for movement
+        if (distance > spell.range + CAST_BUFFER)
+        {
+            result.is_valid = false;
+            result.reasoning = "Targeted spell: out of range";
+            return result;
+        }
+
         // Targeted spells can't miss (unless target becomes untargetable)
         result.cast_position = target->get_position();
         result.hit_chance = 1.0f;
         result.physics_contribution = 1.0f;
         result.behavior_contribution = 1.0f;
-        result.confidence_score = compute_confidence_score(source, target, spell, tracker, edge_cases);
+        result.confidence_score = 1.0f;  // No prediction uncertainty for point-and-click
         result.is_valid = true;
         result.reasoning = "Targeted spell - guaranteed hit (unless target becomes untargetable)";
 
@@ -2376,13 +2384,28 @@ namespace HybridPred
         result.confidence_score = confidence;
 
         // Step 5: Compute cone parameters
-        // TODO: CONE ANGLE INTERPRETATION IS AMBIGUOUS
-        // Current assumption: spell.radius = "width at range", so half-angle = atan2(radius, range)
-        // BUT SDK might encode differently:
-        //   - Option 1: spell.radius = total cone spread in degrees (e.g., Annie W = 50°)
-        //   - Option 2: spell.radius = half-angle already (e.g., Annie W = 25°)
-        //   - Option 3: spell.radius = width at max range (current assumption)
-        // REQUIRES EMPIRICAL TESTING with known cone spells (Annie W, Cassio R, etc.)
+        // ========================================================================================
+        // WARNING: CONE GEOMETRY ASSUMPTIONS - LIKELY INCORRECT
+        // ========================================================================================
+        // The SDK's encoding of cone angles is UNKNOWN and requires empirical validation.
+        //
+        // Current assumption: spell.radius = "width at max range"
+        //   half_angle = atan2(radius, range)
+        //   Example: Annie W (range=600, radius=210) → half_angle ≈ 19.3°
+        //
+        // Alternative interpretations that may be correct:
+        //   1. spell.radius = total cone angle in degrees (Annie W = 50°)
+        //   2. spell.radius = half-angle in degrees (Annie W = 25°)
+        //   3. spell.radius = half-angle in radians (Annie W = 0.436 rad)
+        //   4. Cone data stored elsewhere in static_data (preferred if available)
+        //
+        // TO FIX:
+        //   - Test with known cone spells: Annie W, Cassiopeia R, Rumble Q, Cho'Gath W
+        //   - Compare predicted cone vs actual hitbox in practice tool
+        //   - Check if static_data->get_cast_cone_angle() exists and use that instead
+        //
+        // Until validated, cone predictions may be significantly inaccurate.
+        // ========================================================================================
         float cone_half_angle = std::atan2(spell.radius, spell.range);
         float cone_range = spell.range;
 
