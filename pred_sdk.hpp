@@ -1,6 +1,8 @@
 #pragma once
 
 #include "sdk.hpp"
+#include "dmg_sdk.hpp"
+#include <optional>
 
 class pred_sdk
 {
@@ -93,6 +95,11 @@ public:
         std::vector< collision_type > forbidden_collisions{}; // things we dont want to skillshot to collide with
         std::vector< hit_type > expected_hit_types{}; // if we want special hit types only, fill them in here
         std::function< bool( game_object* ) > additional_target_selection_checks{}; // custom function for target selection checks, example: target with specific buff(s) only
+
+        // Optional: Specify damage type for spell shield handling
+        // If not set (nullptr), spell shields will block the ability (safe default)
+        // Set to dmg_sdk::damage_type::physical to bypass spell shields (Banshee, Sivir E, etc)
+        std::optional<dmg_sdk::damage_type> damage_type_override{};
     };
 
     class pred_data

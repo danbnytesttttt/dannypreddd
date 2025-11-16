@@ -1438,7 +1438,7 @@ namespace HybridPred
         // EDGE CASE DETECTION AND HANDLING
         // =============================================================================
 
-        EdgeCases::EdgeCaseAnalysis edge_cases = EdgeCases::analyze_target(target, source);
+        EdgeCases::EdgeCaseAnalysis edge_cases = EdgeCases::analyze_target(target, source, &spell);
 
         // Filter out invalid targets
         if (edge_cases.is_clone)

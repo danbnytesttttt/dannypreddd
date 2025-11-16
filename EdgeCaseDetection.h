@@ -679,8 +679,12 @@ namespace EdgeCases
 
     /**
      * Analyze all edge cases for target
+     *
+     * @param target The target to analyze
+     * @param source The source of the spell (optional)
+     * @param spell Optional spell data to check damage type for spell shield blocking
      */
-    inline EdgeCaseAnalysis analyze_target(game_object* target, game_object* source = nullptr)
+    inline EdgeCaseAnalysis analyze_target(game_object* target, game_object* source = nullptr, const pred_sdk::spell_data* spell = nullptr)
     {
         EdgeCaseAnalysis analysis;
 
@@ -699,7 +703,30 @@ namespace EdgeCases
         analysis.channel = detect_channel(target);
         analysis.windwalls = detect_windwalls();
         analysis.is_slowed = is_slowed(target);
-        analysis.has_shield = has_spell_shield(target);
+
+        // Spell shield detection with damage type consideration
+        // Physical damage spells bypass spell shields (Banshee, Sivir E, Morgana E, etc.)
+        bool has_spell_shield_buff = has_spell_shield(target);
+        if (has_spell_shield_buff && spell && spell->damage_type_override.has_value())
+        {
+            // Check if this is a physical damage spell
+            if (spell->damage_type_override.value() == dmg_sdk::damage_type::physical)
+            {
+                // Physical damage bypasses spell shields
+                analysis.has_shield = false;
+            }
+            else
+            {
+                // Magical/True damage is blocked by spell shields
+                analysis.has_shield = true;
+            }
+        }
+        else
+        {
+            // No damage type specified - assume blocked (safe default)
+            analysis.has_shield = has_spell_shield_buff;
+        }
+
         analysis.is_clone = !is_real_champion(target);
 
         // Check windwall blocking (only if source provided)
