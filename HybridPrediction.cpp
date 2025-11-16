@@ -1213,7 +1213,7 @@ namespace HybridPred
         // Apply CS prediction - detect if enemy is moving toward low-HP minions
         if (target && target->is_valid())
         {
-            std::vector<CSOpportunity> cs_opportunities = detect_cs_opportunities(target);
+            std::vector<CSOpportunity> cs_opportunities = detect_cs_opportunities(target, nullptr);
 
             // Add CS positions to PDF with moderate weight
             for (const auto& cs_opp : cs_opportunities)
@@ -1234,7 +1234,7 @@ namespace HybridPred
         }
     }
 
-    std::vector<CSOpportunity> BehaviorPredictor::detect_cs_opportunities(game_object* target)
+    std::vector<CSOpportunity> BehaviorPredictor::detect_cs_opportunities(game_object* target, game_object* source)
     {
         std::vector<CSOpportunity> opportunities;
 
@@ -1242,6 +1242,8 @@ namespace HybridPred
         {
             return opportunities;
         }
+
+        (void)source;  // Unused for now - reserved for future filtering
 
         // Get target's AA damage (base + bonus AD)
         float target_aa_damage = target->get_attack_damage();
@@ -1269,8 +1271,8 @@ namespace HybridPred
                 continue;
 
             // Check if minion is low HP (killable in 2-3 autos)
-            float minion_hp = minion->get_health();
-            float minion_max_hp = minion->get_max_health();
+            float minion_hp = minion->get_hp();
+            float minion_max_hp = minion->get_max_hp();
 
             // Low HP threshold: minion can be killed in 2-3 AAs
             float cs_threshold = target_aa_damage * 3.0f;
@@ -1331,15 +1333,14 @@ namespace HybridPred
             // Fallback: check velocity direction if no path or low path confidence
             if (path_confidence < 0.5f)
             {
-                math::vector3 to_minion = minion->get_position() - target_pos;
-                to_minion = to_minion.normalize();
+                math::vector3 to_minion = (minion->get_position() - target_pos).normalized();
 
                 math::vector3 target_velocity = target->get_velocity();
                 float velocity_magnitude = target_velocity.magnitude();
 
                 if (velocity_magnitude > 10.f)  // If moving
                 {
-                    math::vector3 move_direction = target_velocity.normalize();
+                    math::vector3 move_direction = target_velocity.normalized();
                     float dot = to_minion.dot(move_direction);
 
                     if (dot > 0.7f && path_confidence < 0.6f)
@@ -1362,7 +1363,7 @@ namespace HybridPred
             // Enemy will walk to AA range of the minion
             // Position = minion_pos + (direction_to_enemy × aa_range)
             math::vector3 minion_pos = minion->get_position();
-            math::vector3 from_minion_to_target = (target_pos - minion_pos).normalize();
+            math::vector3 from_minion_to_target = (target_pos - minion_pos).normalized();
             math::vector3 predicted_aa_pos = minion_pos + (from_minion_to_target * target_aa_range);
 
             // Estimate time until CS (rough approximation)
@@ -1650,7 +1651,7 @@ namespace HybridPred
 
             // CS PREDICTION LOGGING
             // Detect if target is moving toward low-HP minions (CS opportunities)
-            std::vector<CSOpportunity> cs_opportunities = BehaviorPredictor::detect_cs_opportunities(target);
+            std::vector<CSOpportunity> cs_opportunities = BehaviorPredictor::detect_cs_opportunities(target, source);
             if (!cs_opportunities.empty())
             {
                 // Find the highest confidence CS opportunity

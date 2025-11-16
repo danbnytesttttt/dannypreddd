@@ -2,6 +2,7 @@
 
 #include "sdk.hpp"
 #include "StandalonePredictionSDK.h"  // MUST be included AFTER sdk.hpp for compatibility
+#include "pred_sdk.hpp"  // For spell_data and damage_type_override
 #include "PredictionConfig.h"
 #include <vector>
 #include <string>
