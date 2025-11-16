@@ -1,4 +1,5 @@
 #include "CustomPredictionSDK.h"
+#include "HybridPrediction.h"  // For EPSILON constant
 #include "EdgeCaseDetection.h"
 #include <algorithm>
 #include <limits>
@@ -228,7 +229,7 @@ math::vector3 CustomPredictionSDK::predict_on_path(game_object* obj, float time,
             float distance_to_waypoint = to_waypoint.magnitude();
 
             // SAFETY: Check magnitude before normalizing
-            if (distance_to_waypoint > EPSILON)
+            if (distance_to_waypoint > HybridPred::EPSILON)
             {
                 math::vector3 direction = to_waypoint.normalized();
                 return position + direction * (obj->get_move_speed() * time);
@@ -471,7 +472,7 @@ float CustomPredictionSDK::calculate_target_score(
     EdgeCases::EdgeCaseAnalysis edge_cases = EdgeCases::analyze_target(
         target,
         spell_data.source,
-        const_cast<pred_sdk::spell_data*>(&spell_data)
+        &spell_data
     );
 
     // Filter out invalid targets
@@ -538,7 +539,7 @@ bool CustomPredictionSDK::check_collision_simple(
                 float line_length = line_vec.magnitude();
 
                 // SAFETY: Check magnitude before normalizing
-                if (line_length < EPSILON)
+                if (line_length < HybridPred::EPSILON)
                     continue;  // Zero-length line, skip collision check
 
                 math::vector3 line_dir = line_vec.normalized();
@@ -581,7 +582,7 @@ bool CustomPredictionSDK::check_collision_simple(
                 float line_length = line_vec.magnitude();
 
                 // SAFETY: Check magnitude before normalizing
-                if (line_length < EPSILON)
+                if (line_length < HybridPred::EPSILON)
                     continue;  // Zero-length line, skip collision check
 
                 math::vector3 line_dir = line_vec.normalized();

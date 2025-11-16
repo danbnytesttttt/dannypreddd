@@ -686,7 +686,7 @@ namespace EdgeCases
      * @param source The source of the spell (optional)
      * @param spell The spell data containing damage type info (optional)
      */
-    inline EdgeCaseAnalysis analyze_target(game_object* target, game_object* source = nullptr, pred_sdk::spell_data* spell = nullptr)
+    inline EdgeCaseAnalysis analyze_target(game_object* target, game_object* source = nullptr, const pred_sdk::spell_data* spell = nullptr)
     {
         EdgeCaseAnalysis analysis;
 
