@@ -7,6 +7,7 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <windows.h>
 
 /**
  * =============================================================================
@@ -119,8 +120,10 @@ namespace PredictionTelemetry
             stats_.session_start_time = get_timestamp();
             stats_.champion_name = champion_name;
 
-            // Create log file path
-            log_file_path_ = "dannypred_telemetry_" + stats_.session_start_time + ".txt";
+            // Create log file path with full path
+            char current_dir[MAX_PATH];
+            GetCurrentDirectoryA(MAX_PATH, current_dir);
+            log_file_path_ = std::string(current_dir) + "\\dannypred_telemetry_" + stats_.session_start_time + ".txt";
 
             // Write header
             std::ofstream file(log_file_path_, std::ios::app);
@@ -133,6 +136,22 @@ namespace PredictionTelemetry
                 file << "Session Start: " << stats_.session_start_time << "\n";
                 file << "=============================================================================\n\n";
                 file.close();
+
+                // Log file creation to console
+                if (g_sdk)
+                {
+                    std::string msg = "[Danny.Prediction] Telemetry file created: " + log_file_path_;
+                    g_sdk->log_console(msg.c_str());
+                }
+            }
+            else
+            {
+                // Failed to create file
+                if (g_sdk)
+                {
+                    std::string msg = "[Danny.Prediction] ERROR: Failed to create telemetry file: " + log_file_path_;
+                    g_sdk->log_console(msg.c_str());
+                }
             }
         }
 
@@ -318,8 +337,11 @@ namespace PredictionTelemetry
             // Log file path to console
             if (g_sdk)
             {
-                std::string msg = "[Danny.Prediction] Telemetry saved to: " + log_file_path_;
-                g_sdk->log_console(msg.c_str());
+                char msg[512];
+                snprintf(msg, sizeof(msg),
+                    "[Danny.Prediction] Telemetry report saved: %d predictions logged to:\n%s",
+                    stats_.total_predictions, log_file_path_.c_str());
+                g_sdk->log_console(msg);
             }
         }
     };
