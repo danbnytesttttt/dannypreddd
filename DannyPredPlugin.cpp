@@ -89,23 +89,7 @@ namespace Prediction
                 }
             );
 
-            // Manual Telemetry Save Button
-            prediction_menu->add_button(
-                "save_telemetry",
-                "Save Telemetry Now",
-                []() {
-                    if (PredictionSettings::get().enable_telemetry)
-                    {
-                        float session_duration = g_sdk->clock_facade->get_game_time() - g_session_start_time;
-                        PredictionTelemetry::TelemetryLogger::finalize(session_duration);
-                        g_sdk->log_console("[Danny.Prediction] Telemetry manually saved!");
-                    }
-                    else
-                    {
-                        g_sdk->log_console("[Danny.Prediction] Telemetry is disabled - enable it first!");
-                    }
-                }
-            );
+            prediction_menu->add_label("Telemetry outputs to console at game end");
 
             // Grid Search Quality
             std::vector<std::string> quality_options = {

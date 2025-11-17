@@ -23,18 +23,18 @@ namespace PredictionTelemetry
 {
     struct PredictionEvent
     {
-        float timestamp;
-        std::string target_name;
-        std::string spell_type;
-        float hit_chance;
-        float confidence;
-        float distance;
-        bool was_dash;
-        bool was_stationary;
-        bool was_animation_locked;
-        bool collision_detected;
-        float computation_time_ms;
-        std::string edge_case;  // "stasis", "channeling", "dash", "normal"
+        float timestamp = 0.f;
+        std::string target_name = "";
+        std::string spell_type = "";
+        float hit_chance = 0.f;
+        float confidence = 0.f;
+        float distance = 0.f;
+        bool was_dash = false;
+        bool was_stationary = false;
+        bool was_animation_locked = false;
+        bool collision_detected = false;
+        float computation_time_ms = 0.f;
+        std::string edge_case = "normal";  // "stasis", "channeling", "dash", "normal"
     };
 
     struct SessionStats
