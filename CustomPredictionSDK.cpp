@@ -97,24 +97,23 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         return result;
     }
 
-    // CRITICAL FIX: If source is null, use local player as default
+    // If source is null/invalid, use local player as default (expected behavior for most spell scripts)
+    // This is a user-friendly feature - spell scripts don't need to set source explicitly
     if (!spell_data.source || !spell_data.source->is_valid())
     {
-        static bool warned_once = false;
-        if (!warned_once)
-        {
-            g_sdk->log_console("[Danny.Prediction] WARNING: source was null - using local player (will not warn again)");
-            warned_once = true;
-        }
-
         spell_data.source = g_sdk->object_manager->get_local_player();
 
         if (!spell_data.source || !spell_data.source->is_valid())
         {
-            g_sdk->log_console("[Danny.Prediction] EARLY EXIT: Could not get valid source!");
+            // Extremely rare case - local player itself is invalid (shouldn't happen in normal gameplay)
+            PRED_DEBUG_LOG("[Danny.Prediction] ERROR: Could not get valid source (local player invalid)!");
             result.hitchance = pred_sdk::hitchance::any;
+            result.is_valid = false;
             return result;
         }
+
+        // Only log in debug mode - this is expected behavior, not an error
+        PRED_DEBUG_LOG("[Danny.Prediction] Auto-filled source as local player (spell script didn't specify source)");
     }
 
     // FIXED: Safe debug logging for spell details
