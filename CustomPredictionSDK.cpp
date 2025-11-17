@@ -763,14 +763,28 @@ bool CustomPredictionSDK::check_collision_simple(
     if (PredictionSettings::get().enable_debug_logging)
     {
         char msg[256];
-        snprintf(msg, sizeof(msg), "[CollisionCheck] Checking path from (%.0f,%.0f) to (%.0f,%.0f)",
-            start.x, start.z, end.x, end.z);
+        snprintf(msg, sizeof(msg), "[CollisionCheck] Checking path from (%.0f,%.0f) to (%.0f,%.0f) - spell radius=%.0f",
+            start.x, start.z, end.x, end.z, spell_data.radius);
         g_sdk->log_console(msg);
     }
 
     // Check each collision type
     for (auto collision_type : spell_data.forbidden_collisions)
     {
+        // Log which collision type we're checking
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            const char* type_name = "UNKNOWN";
+            if (collision_type == pred_sdk::collision_type::unit) type_name = "UNIT (minions)";
+            else if (collision_type == pred_sdk::collision_type::hero) type_name = "HERO";
+            else if (collision_type == pred_sdk::collision_type::turret) type_name = "TURRET";
+            else if (collision_type == pred_sdk::collision_type::terrain) type_name = "TERRAIN";
+
+            char msg[256];
+            snprintf(msg, sizeof(msg), "[CollisionCheck] → Checking collision type: %s", type_name);
+            g_sdk->log_console(msg);
+        }
+
         if (collision_type == pred_sdk::collision_type::unit)
         {
             auto minions = g_sdk->object_manager->get_minions();
@@ -783,10 +797,14 @@ bool CustomPredictionSDK::check_collision_simple(
                 g_sdk->log_console(msg);
             }
 
+            int minion_count = 0;
+            int enemy_minion_count = 0;
             for (auto* minion : minions)
             {
                 if (!minion || minion == target_obj)
                     continue;
+
+                minion_count++;
 
                 if (!is_collision_object(minion, spell_data))
                     continue;
@@ -795,6 +813,8 @@ bool CustomPredictionSDK::check_collision_simple(
                 // Ally minions do NOT block your own skillshots in League of Legends
                 if (minion->get_team_id() == spell_data.source->get_team_id())
                     continue;
+
+                enemy_minion_count++;
 
                 // Skip wards - they never block skillshots
                 std::string name = minion->get_char_name();
@@ -817,6 +837,18 @@ bool CustomPredictionSDK::check_collision_simple(
                 math::vector3 closest_point = start + line_dir * projection;
                 float distance = minion_pos.distance(closest_point);
 
+                // Debug log the distance calculation
+                if (PredictionSettings::get().enable_debug_logging)
+                {
+                    char msg[512];
+                    snprintf(msg, sizeof(msg),
+                        "[CollisionCheck] Minion %s at (%.0f,%.0f): distance=%.1f, threshold=%.1f (radius %.0f + bounds %.0f)",
+                        name.c_str(), minion_pos.x, minion_pos.z, distance,
+                        spell_data.radius + minion->get_bounding_radius(),
+                        spell_data.radius, minion->get_bounding_radius());
+                    g_sdk->log_console(msg);
+                }
+
                 if (distance <= spell_data.radius + minion->get_bounding_radius())
                 {
                     if (PredictionSettings::get().enable_debug_logging)
@@ -829,6 +861,16 @@ bool CustomPredictionSDK::check_collision_simple(
                     }
                     return true;
                 }
+            }
+
+            // Log summary after checking all minions
+            if (PredictionSettings::get().enable_debug_logging)
+            {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                    "[CollisionCheck] Unit collision check complete: %d valid minions, %d enemy minions checked",
+                    minion_count, enemy_minion_count);
+                g_sdk->log_console(msg);
             }
         }
         else if (collision_type == pred_sdk::collision_type::hero)
