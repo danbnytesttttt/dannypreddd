@@ -154,6 +154,28 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         g_sdk->log_console(debug_msg);
     }
 
+    // CRITICAL: Check range BEFORE prediction to avoid wasting computation
+    // Cache positions to prevent inconsistency from flash/dash
+    math::vector3 source_pos = spell_data.source->get_position();
+    math::vector3 target_pos = obj->get_position();
+    float distance_to_target = target_pos.distance(source_pos);
+
+    // Add 50 unit buffer to account for target movement during cast
+    if (distance_to_target > spell_data.range + 50.f)
+    {
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            char range_msg[256];
+            snprintf(range_msg, sizeof(range_msg),
+                "[Danny.Prediction] Target out of range: %.0f > %.0f - skipping prediction",
+                distance_to_target, spell_data.range);
+            g_sdk->log_console(range_msg);
+        }
+        result.hitchance = pred_sdk::hitchance::any;
+        result.is_valid = false;
+        return result;
+    }
+
     // Start telemetry timing
     auto telemetry_start = std::chrono::high_resolution_clock::now();
 
@@ -217,23 +239,7 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         case pred_sdk::hitchance::any: thresh_name = "ANY(0)"; break;
     }
 
-    // CRITICAL: Check if cast position is within spell range
-    // For linear spells, cast_position is at max range in target direction
-    // We need to verify target is actually reachable
-    float distance_to_target = obj->get_position().distance(spell_data.source->get_position());
-    bool in_range = (distance_to_target <= spell_data.range + 100.f); // +100 buffer for movement/positioning
-
-    bool should_cast = (result.hitchance >= spell_data.expected_hitchance) && in_range;
-
-    // Debug: Log range check failures
-    if (!in_range && PredictionSettings::get().enable_debug_logging)
-    {
-        char range_msg[256];
-        snprintf(range_msg, sizeof(range_msg),
-            "[Danny.Prediction] Target out of range: %.0f > %.0f (spell range)",
-            distance_to_target, spell_data.range);
-        g_sdk->log_console(range_msg);
-    }
+    bool should_cast = (result.hitchance >= spell_data.expected_hitchance);
 
     // CONCISE DEBUG: Only log when actually casting
     if (should_cast && PredictionSettings::get().enable_debug_logging)
