@@ -2325,7 +2325,10 @@ namespace HybridPred
         }
 
         math::vector3 direction = to_center / dist_to_center;  // Safe manual normalize
-        result.cast_position = source_pos + direction * cone_range;
+
+        // For cone spells, cast_position is where we're aiming (center of cone)
+        // This should be at the predicted target position, not at max range
+        result.cast_position = reachable_region.center;
 
         // Step 6: Compute hit probabilities for cone
         float physics_prob = compute_cone_reachability_overlap(
