@@ -3,6 +3,7 @@
 #include "PredictionSettings.h"
 #include "PredictionTelemetry.h"
 #include "PredictionVisuals.h"
+#include "FogOfWarTracker.h"
 
 CustomPredictionSDK customPrediction;
 
@@ -72,6 +73,30 @@ namespace Prediction
                     PredictionSettings::get().enable_dash_prediction = value;
                 }
             );
+
+            // Fog of War Prediction Toggle
+            prediction_menu->add_checkbox(
+                "enable_fog_predictions",
+                "Allow Predictions Into Fog",
+                false,  // Disabled by default for safety
+                [](bool value) {
+                    FogOfWarTracker::FogSettings::get().enable_fog_predictions = value;
+                }
+            );
+
+            // Fog Prediction Time Limit
+            prediction_menu->add_slider_float(
+                "fog_prediction_time",
+                "Max Fog Prediction Time (seconds)",
+                0.25f, 2.0f, 0.25f, 0.75f,
+                [](float value) {
+                    FogOfWarTracker::FogSettings::get().max_fog_prediction_time = value;
+                }
+            );
+
+            prediction_menu->add_label("Fog predictions use reduced confidence (50%)");
+
+            prediction_menu->add_separator();
 
             // Debug Logging Toggle
             prediction_menu->add_checkbox(
@@ -264,6 +289,9 @@ namespace Prediction
 
         // Clean up prediction visuals
         PredictionVisuals::clear();
+
+        // Clean up fog of war tracker
+        FogOfWarTracker::clear();
 
         // Clean up all trackers
         HybridPred::PredictionManager::clear();

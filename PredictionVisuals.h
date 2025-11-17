@@ -89,6 +89,16 @@ namespace PredictionVisuals
         data.is_valid = true;
         data.target_name = target_name;
         data.spell_slot = spell_slot;
+
+        // Debug logging (once per spell slot change)
+        static int last_logged_slot = -1;
+        if (g_sdk && spell_slot != last_logged_slot)
+        {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "[PredVisuals] Stored prediction for slot %d (radius=%.0f)", spell_slot, spell_radius);
+            g_sdk->log_console(msg);
+            last_logged_slot = spell_slot;
+        }
     }
 
     /**
@@ -100,6 +110,20 @@ namespace PredictionVisuals
             return;
 
         const auto& settings = VisualsSettings::get();
+
+        // Debug: Log draw call (once every 5 seconds)
+        static float last_draw_log = 0.f;
+        if (g_sdk && current_time - last_draw_log > 5.0f)
+        {
+            int valid_count = 0;
+            for (int i = 0; i < 4; ++i)
+                if (g_recent_predictions[i].is_valid) valid_count++;
+
+            char msg[256];
+            snprintf(msg, sizeof(msg), "[PredVisuals] draw_predictions() - %d valid predictions", valid_count);
+            g_sdk->log_console(msg);
+            last_draw_log = current_time;
+        }
 
         // Draw each spell slot's prediction if it's recent enough
         for (int i = 0; i < 4; ++i)

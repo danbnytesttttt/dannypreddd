@@ -3,6 +3,7 @@
 #include "PredictionSettings.h"
 #include "PredictionTelemetry.h"
 #include "PredictionVisuals.h"
+#include "FogOfWarTracker.h"
 #include <algorithm>
 #include <limits>
 #include <sstream>
@@ -177,6 +178,20 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         return result;
     }
 
+    // CRITICAL: Check fog of war status
+    float current_time = g_sdk->clock_facade->get_game_time();
+    FogOfWarTracker::update_visibility(obj, current_time);
+
+    auto [should_predict, fog_confidence_multiplier] = FogOfWarTracker::should_predict_target(obj, current_time);
+
+    if (!should_predict)
+    {
+        // Target is in fog for too long - don't cast at stale position
+        result.hitchance = pred_sdk::hitchance::any;
+        result.is_valid = false;
+        return result;
+    }
+
     // Start telemetry timing
     auto telemetry_start = std::chrono::high_resolution_clock::now();
 
@@ -218,6 +233,26 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
 
     // Convert hybrid result to pred_data
     result = convert_to_pred_data(hybrid_result, obj, spell_data);
+
+    // Apply fog of war confidence penalty
+    if (fog_confidence_multiplier < 1.0f)
+    {
+        // Reduce hit chance for targets in fog
+        float original_hc = hybrid_result.hit_chance;
+        hybrid_result.hit_chance *= fog_confidence_multiplier;
+
+        // Re-convert to enum with reduced hit chance
+        result.hitchance = convert_hit_chance_to_enum(hybrid_result.hit_chance);
+
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            char fog_msg[256];
+            snprintf(fog_msg, sizeof(fog_msg),
+                "[Danny.Prediction] FOG PENALTY: HC %.0f%% -> %.0f%% (multiplier: %.2f)",
+                original_hc * 100.f, hybrid_result.hit_chance * 100.f, fog_confidence_multiplier);
+            g_sdk->log_console(fog_msg);
+        }
+    }
 
     // DEBUG: Log final hitchance with detailed comparison
     const char* hc_name = "UNKNOWN";
