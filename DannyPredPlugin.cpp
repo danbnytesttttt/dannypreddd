@@ -159,10 +159,30 @@ namespace Prediction
                 }
             );
 
+            // Color Picker for all visuals
+            prediction_menu->add_colorpicker(
+                "prediction_color",
+                "Prediction Color",
+                0xFFE19D9D,  // Default salmon/pink
+                [](uint32_t color) {
+                    PredictionVisuals::VisualsSettings::get().main_color = color;
+                }
+            );
+
+            // Draw Current Position
+            prediction_menu->add_checkbox(
+                "draw_current_position",
+                "Show Current Position (Light)",
+                true,
+                [](bool value) {
+                    PredictionVisuals::VisualsSettings::get().draw_current_position = value;
+                }
+            );
+
             // Draw Predicted Position
             prediction_menu->add_checkbox(
                 "draw_predicted_position",
-                "Show Prediction Circle",
+                "Show Predicted Position",
                 true,
                 [](bool value) {
                     PredictionVisuals::VisualsSettings::get().draw_predicted_position = value;
@@ -189,7 +209,7 @@ namespace Prediction
                 }
             );
 
-            prediction_menu->add_label("Circle + Line from you to predicted position");
+            prediction_menu->add_label("Current (light) + Predicted + Line from you");
 
             prediction_menu->add_separator();
 

@@ -26,9 +26,7 @@ namespace PredictionVisuals
         bool draw_movement_line = true;          // Draw line current → predicted
         float prediction_time = 0.75f;           // How far ahead to predict (seconds)
 
-        uint32_t current_pos_color = 0xFF00FF00;    // Green - where enemy is NOW (not used, kept for menu compatibility)
-        uint32_t predicted_pos_color = 0xFFE19D9D;  // Salmon/pink - prediction indicator
-        uint32_t movement_line_color = 0xFFE19D9D;  // Salmon/pink - skillshot line
+        uint32_t main_color = 0xFFE19D9D;  // Main color for all visuals (salmon/pink default)
 
         float current_circle_radius = 65.0f;
         float predicted_circle_radius = 80.0f;
@@ -39,6 +37,22 @@ namespace PredictionVisuals
         {
             static VisualsSettings instance;
             return instance;
+        }
+
+        // Helper: Create a lighter version of a color for current position indicator
+        static uint32_t make_lighter(uint32_t color)
+        {
+            uint8_t a = (color >> 24) & 0xFF;
+            uint8_t r = (color >> 16) & 0xFF;
+            uint8_t g = (color >> 8) & 0xFF;
+            uint8_t b = color & 0xFF;
+
+            // Blend with white (255,255,255) at 70% to make it much lighter
+            r = static_cast<uint8_t>(r + (255 - r) * 0.7f);
+            g = static_cast<uint8_t>(g + (255 - g) * 0.7f);
+            b = static_cast<uint8_t>(b + (255 - b) * 0.7f);
+
+            return (a << 24) | (r << 16) | (g << 8) | b;
         }
     };
 
@@ -127,7 +141,23 @@ namespace PredictionVisuals
         if (hitchance_percent < 50.0f)
             return;
 
-        // Draw predicted position (salmon/pink circle)
+        // Draw current position (very light version of main color)
+        if (settings.draw_current_position)
+        {
+            try
+            {
+                uint32_t light_color = VisualsSettings::make_lighter(settings.main_color);
+                g_sdk->renderer->add_circle_3d(
+                    current_pos,
+                    settings.current_circle_radius,
+                    settings.circle_thickness,
+                    light_color
+                );
+            }
+            catch (...) { /* Ignore render errors */ }
+        }
+
+        // Draw predicted position (main color circle)
         if (settings.draw_predicted_position)
         {
             try
@@ -136,13 +166,13 @@ namespace PredictionVisuals
                     predicted_pos,
                     settings.predicted_circle_radius,
                     settings.circle_thickness,
-                    settings.predicted_pos_color
+                    settings.main_color
                 );
             }
             catch (...) { /* Ignore render errors */ }
         }
 
-        // Draw skillshot line (yellow line from player to predicted enemy position)
+        // Draw skillshot line (main color line from player to predicted enemy position)
         if (settings.draw_movement_line)
         {
             try
@@ -163,7 +193,7 @@ namespace PredictionVisuals
                             screen_player,
                             screen_predicted,
                             settings.line_thickness,
-                            settings.movement_line_color
+                            settings.main_color
                         );
                     }
                 }
