@@ -203,25 +203,22 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
 
     bool should_cast = (result.hitchance >= spell_data.expected_hitchance);
 
-    // FIXED: Safe debug logging
-    if (PredictionSettings::get().enable_debug_logging)
+    // CONCISE DEBUG: Only log when actually casting
+    if (should_cast && PredictionSettings::get().enable_debug_logging)
     {
-        std::stringstream ss;
-        ss << "[Danny.Prediction] Hitchance: " << hc_name << " | Threshold: " << thresh_name
-           << " | SHOULD_CAST: " << (should_cast ? "YES!!!" : "NO (too low)");
-        g_sdk->log_console(ss.str().c_str());
+        math::vector3 target_pos = obj->get_position();
+        math::vector3 offset = result.cast_position - target_pos;
+        float offset_dist = offset.magnitude();
 
-        if (should_cast) {
-            char pos_msg[128];
-            snprintf(pos_msg, sizeof(pos_msg), "[Danny.Prediction] >>> CAST POSITION: (%.1f, %.1f, %.1f) <<<",
-                result.cast_position.x, result.cast_position.y, result.cast_position.z);
-            g_sdk->log_console(pos_msg);
-        } else {
-            // Suggest if threshold might be too conservative
-            if (spell_data.expected_hitchance >= pred_sdk::hitchance::very_high) {
-                g_sdk->log_console("[Danny.Prediction] HINT: Threshold is VERY_HIGH or GUARANTEED - try lowering to HIGH or MEDIUM in script settings");
-            }
-        }
+        char cast_msg[512];
+        snprintf(cast_msg, sizeof(cast_msg),
+            "[CAST] Target:(%.0f,%.0f) Cast:(%.0f,%.0f) Offset:%.0f units | HitChance:%s Threshold:%s | %s",
+            target_pos.x, target_pos.z,
+            result.cast_position.x, result.cast_position.z,
+            offset_dist,
+            hc_name, thresh_name,
+            hybrid_result.reasoning.c_str());
+        g_sdk->log_console(cast_msg);
     }
 
     // Check collision if required
