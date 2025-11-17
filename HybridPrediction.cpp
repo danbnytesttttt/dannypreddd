@@ -977,7 +977,12 @@ namespace HybridPred
         float acceleration)
     {
         ReachableRegion region;
-        region.center = current_pos;
+
+        // CRITICAL FIX: Center region at PREDICTED position, not current position
+        // The target is moving! After prediction_time, they'll be near (pos + velocity * time)
+        // They can deviate from this by ±(max_distance) due to turning/acceleration
+        // Without this fix, skillshots aim at current position even when target is far away
+        region.center = current_pos + current_velocity * prediction_time;
 
         if (prediction_time < EPSILON)
         {
@@ -1025,7 +1030,7 @@ namespace HybridPred
         for (int i = 0; i < BOUNDARY_POINTS; ++i)
         {
             float angle = (2.f * PI * i) / BOUNDARY_POINTS;
-            math::vector3 boundary_point = current_pos;
+            math::vector3 boundary_point = region.center;  // Use predicted center, not current_pos
             boundary_point.x += max_distance * std::cos(angle);
             boundary_point.z += max_distance * std::sin(angle);
             region.boundary_points.push_back(boundary_point);
