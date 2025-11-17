@@ -506,26 +506,45 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
     if (!spell_data.source || !spell_data.source->is_valid())
         return nullptr;
 
-    // Use target selector if available
+    // Try target selector first if available
+    game_object* ts_target = nullptr;
     if (sdk::target_selector)
     {
-        return sdk::target_selector->get_hero_target();
+        ts_target = sdk::target_selector->get_hero_target();
+
+        // If target selector returned a valid target in range, use it
+        if (ts_target && ts_target->is_valid() && !ts_target->is_dead())
+        {
+            float distance = ts_target->get_position().distance(spell_data.source->get_position());
+            if (distance <= spell_data.range + 200.f)
+            {
+                return ts_target;
+            }
+        }
     }
 
     // Fallback: Find best target based on hybrid prediction score
+    // This runs if target selector is unavailable OR didn't return a valid target
     game_object* best_target = nullptr;
     float best_score = -1.f;
 
     auto all_heroes = g_sdk->object_manager->get_heroes();
+    int total_heroes = 0;
+    int valid_in_range = 0;
+
     for (auto* hero : all_heroes)
     {
         if (!hero || !hero->is_valid() || hero->is_dead() || hero->get_team_id() == spell_data.source->get_team_id())
             continue;
 
+        total_heroes++;
+
         // Check range
         float distance = hero->get_position().distance(spell_data.source->get_position());
         if (distance > spell_data.range + 200.f) // Add buffer
             continue;
+
+        valid_in_range++;
 
         // Calculate score
         float score = calculate_target_score(hero, spell_data);
@@ -535,6 +554,16 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
             best_score = score;
             best_target = hero;
         }
+    }
+
+    // Debug logging to help diagnose target selection issues
+    if (!best_target && PredictionSettings::get().enable_debug_logging)
+    {
+        char debug_msg[256];
+        snprintf(debug_msg, sizeof(debug_msg),
+            "[Danny.Prediction] Fallback target search: %d total enemies, %d in range, best_score=%.2f",
+            total_heroes, valid_in_range, best_score);
+        g_sdk->log_console(debug_msg);
     }
 
     return best_target;
@@ -552,17 +581,36 @@ float CustomPredictionSDK::calculate_target_score(
 
     // Filter out invalid targets
     if (edge_cases.is_clone)
+    {
+        if (PredictionSettings::get().enable_debug_logging)
+            g_sdk->log_console("[Danny.Prediction] Skipping clone target");
         return 0.f;  // Don't target clones
+    }
 
     if (edge_cases.blocked_by_windwall)
+    {
+        if (PredictionSettings::get().enable_debug_logging)
+            g_sdk->log_console("[Danny.Prediction] Skipping windwall-blocked target");
         return 0.f;  // Can't hit through windwall
+    }
 
     // Get hybrid prediction for this target
     HybridPred::HybridPredictionResult pred_result =
         HybridPred::PredictionManager::predict(spell_data.source, target, spell_data);
 
     if (!pred_result.is_valid)
+    {
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            char debug_msg[256];
+            snprintf(debug_msg, sizeof(debug_msg),
+                "[Danny.Prediction] Prediction invalid for %s - reason: %s",
+                target->get_char_name().c_str(),
+                pred_result.reasoning.empty() ? "unknown" : pred_result.reasoning.c_str());
+            g_sdk->log_console(debug_msg);
+        }
         return 0.f;
+    }
 
     float score = pred_result.hit_chance;
 
