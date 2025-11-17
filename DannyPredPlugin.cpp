@@ -89,7 +89,27 @@ namespace Prediction
                 }
             );
 
-            prediction_menu->add_label("Telemetry outputs to console at game end");
+            // Telemetry Output Hotkey
+            prediction_menu->add_hotkey(
+                "output_telemetry_key",
+                "Output Telemetry Now (Hotkey)",
+                0,  // No default key - user must bind
+                false,  // Not active by default
+                false,  // Not a toggle - one-shot trigger
+                [](std::string* element_name, bool is_active) {
+                    if (is_active && PredictionSettings::get().enable_telemetry)
+                    {
+                        float session_duration = g_sdk->clock_facade->get_game_time() - g_session_start_time;
+                        PredictionTelemetry::TelemetryLogger::finalize(session_duration);
+                    }
+                    else if (is_active && !PredictionSettings::get().enable_telemetry)
+                    {
+                        g_sdk->log_console("[Danny.Prediction] Telemetry is disabled - enable it first!");
+                    }
+                }
+            );
+
+            prediction_menu->add_label("Bind a key above to output telemetry on demand");
 
             // Grid Search Quality
             std::vector<std::string> quality_options = {
