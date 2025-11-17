@@ -9,6 +9,7 @@
 
 #include "sdk.hpp"
 #include "StandalonePredictionSDK.h"  // MUST be included AFTER sdk.hpp for compatibility
+#include "PredictionSettings.h"
 #include "EdgeCaseDetection.h"
 #include <vector>
 #include <deque>
@@ -137,7 +138,11 @@ namespace HybridPred
 
         // Weighted geometric mean
         float fused = std::pow(physics_prob, physics_weight) * std::pow(behavior_prob, 1.0f - physics_weight);
-        return fused * confidence;
+
+        // FIXED: Don't over-penalize with confidence - use softer scaling
+        // Map confidence [0,1] to multiplier [0.7, 1.0] to prevent strangling predictions
+        float confidence_multiplier = 0.7f + confidence * 0.3f;
+        return fused * confidence_multiplier;
     }
 
     // =========================================================================

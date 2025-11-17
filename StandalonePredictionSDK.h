@@ -79,7 +79,26 @@ inline bool is_knocked_up(game_object* obj)
     return obj ? obj->has_buff_of_type(buff_type::knockup) : false;
 }
 
-// Animation state detection
+// FIXED: Improved animation lock detection includes AA windup phase
+inline bool is_animation_locked(game_object* obj)
+{
+    if (!obj) return false;
+    auto active_cast = obj->get_active_spell_cast();
+    if (!active_cast) return false;
+
+    // Check if any cast is active (spell or AA)
+    // This includes windup, cast point, and backswing phases
+    if (!g_sdk || !g_sdk->clock_facade)
+        return false;
+
+    float cast_end_time = active_cast->get_cast_end_time();
+    float current_time = g_sdk->clock_facade->get_game_time();
+
+    // Locked if cast hasn't finished yet (includes all animation phases)
+    return cast_end_time > current_time;
+}
+
+// Animation state detection (backwards compatibility)
 inline bool is_auto_attacking(game_object* obj)
 {
     if (!obj) return false;

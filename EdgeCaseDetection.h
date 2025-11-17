@@ -117,10 +117,10 @@ namespace EdgeCases
 
         float time_until_exit = stasis.end_time - current_time;
 
-        // CRITICAL: Cast so spell arrives EXACTLY when stasis ends
-        // Cast time = (stasis end) - (spell travel time) - (small buffer for ping)
-        constexpr float PING_BUFFER = 0.05f;  // 50ms buffer
-        float optimal_cast_delay = time_until_exit - spell_travel_time - PING_BUFFER;
+        // FIXED: Use actual ping from SDK instead of fixed 50ms buffer
+        float ping_seconds = g_sdk ? (static_cast<float>(g_sdk->net_client->get_ping()) * 0.001f) : 0.05f;
+        constexpr float SAFETY_MARGIN = 0.01f;  // Additional 10ms safety
+        float optimal_cast_delay = time_until_exit - spell_travel_time - ping_seconds - SAFETY_MARGIN;
 
         // If spell would arrive too early, target is still invulnerable
         if (optimal_cast_delay > 0.f)

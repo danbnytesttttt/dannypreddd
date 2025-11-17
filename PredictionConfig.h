@@ -1,36 +1,17 @@
 #pragma once
 
-/**
- * =============================================================================
- * PREDICTION CONFIGURATION
- * =============================================================================
- *
- * Global configuration settings for the hybrid prediction system.
- * Accessed via PredictionConfig::get()
- *
- * =============================================================================
- */
+// DEPRECATED: Use PredictionSettings.h instead
+// This file is kept for backwards compatibility
+#include "PredictionSettings.h"
 
 namespace PredictionConfig
 {
     /**
-     * Configuration settings
+     * Get global configuration instance (forwards to PredictionSettings)
      */
-    struct Settings
+    inline PredictionSettings::Settings& get()
     {
-        // Edge case toggles
-        bool enable_dash_prediction = true;  // Predict at dash endpoints
-
-        Settings() {}
-    };
-
-    /**
-     * Get global configuration instance
-     */
-    inline Settings& get()
-    {
-        static Settings instance;
-        return instance;
+        return PredictionSettings::get();
     }
 
 } // namespace PredictionConfig

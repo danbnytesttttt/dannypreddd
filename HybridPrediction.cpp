@@ -483,6 +483,14 @@ namespace HybridPred
             return false;
 
         const auto& latest = movement_history_.back();
+
+        // Use improved animation lock detection if available
+        if (target_ && target_->is_valid())
+        {
+            return is_animation_locked(target_);
+        }
+
+        // Fallback to snapshot data
         return latest.is_auto_attacking || latest.is_casting || latest.is_cced;
     }
 
@@ -628,13 +636,22 @@ namespace HybridPred
             sample_count++;
         }
 
-        // Apply dodge pattern bias ONLY if target has had time to react
-        // Reaction delay gating: Skip lateral dodge samples if prediction_time < reaction_delay
-        // Target cannot have juked yet if they haven't had time to react
+        // FIXED: Gradual reaction delay weighting instead of binary threshold
+        // Humans don't react instantly or never - there's a ramp-up period
         float reaction_delay_seconds = dodge_pattern_.reaction_delay / 1000.f;  // Convert ms to seconds
-        bool can_react = prediction_time >= reaction_delay_seconds;
 
-        if (latest.velocity.magnitude() > 10.f && can_react)
+        // Linear ramp from (reaction_delay - 0.1s) to (reaction_delay + 0.3s)
+        // Before reaction_delay - 0.1s: 0% (no reaction possible)
+        // At reaction_delay: 50% (partial reaction)
+        // After reaction_delay + 0.3s: 100% (full reaction)
+        float reaction_start = reaction_delay_seconds - 0.1f;
+        float reaction_full = reaction_delay_seconds + 0.3f;
+        float reaction_weight = std::clamp(
+            (prediction_time - reaction_start) / (reaction_full - reaction_start),
+            0.f, 1.f
+        );
+
+        if (latest.velocity.magnitude() > 10.f && reaction_weight > 0.01f)
         {
             math::vector3 velocity_dir = latest.velocity.normalized();
             // Perpendicular in XZ plane (2D movement) - 90° rotation
@@ -677,13 +694,17 @@ namespace HybridPred
             if (dodge_pattern_.left_dodge_frequency > 0.3f)
             {
                 math::vector3 left_pos = latest.position + forward + side;
-                pdf.add_weighted_sample(left_pos, dodge_pattern_.left_dodge_frequency * 0.5f * juke_cadence_weight);
+                // Apply reaction weight to dodge pattern strength
+                float left_weight = dodge_pattern_.left_dodge_frequency * 0.5f * juke_cadence_weight * reaction_weight;
+                pdf.add_weighted_sample(left_pos, left_weight);
             }
 
             if (dodge_pattern_.right_dodge_frequency > 0.3f)
             {
                 math::vector3 right_pos = latest.position + forward - side;
-                pdf.add_weighted_sample(right_pos, dodge_pattern_.right_dodge_frequency * 0.5f * juke_cadence_weight);
+                // Apply reaction weight to dodge pattern strength
+                float right_weight = dodge_pattern_.right_dodge_frequency * 0.5f * juke_cadence_weight * reaction_weight;
+                pdf.add_weighted_sample(right_pos, right_weight);
             }
 
             // PATTERN-BASED PREDICTION BOOST
@@ -1723,8 +1744,8 @@ namespace HybridPred
         float projectile_radius,
         float confidence)
     {
-        // Grid search over reachable region
-        constexpr int GRID_SEARCH_SIZE = 16;
+        // FIXED: Use configurable grid search size (default 8 for performance, max 16 for quality)
+        int GRID_SEARCH_SIZE = PredictionSettings::get().grid_search_resolution;
         float best_score = -1.f;
         math::vector3 best_position = reachable_region.center;
 
