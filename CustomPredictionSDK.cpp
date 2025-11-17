@@ -298,40 +298,13 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     // Check collision if required
     if (!spell_data.forbidden_collisions.empty())
     {
-        if (PredictionSettings::get().enable_debug_logging)
-        {
-            char msg[256];
-            snprintf(msg, sizeof(msg), "[Danny.Prediction] Checking collision - %zu collision types configured",
-                spell_data.forbidden_collisions.size());
-            g_sdk->log_console(msg);
-        }
-
         pred_sdk::collision_ret collision = collides(result.cast_position, spell_data, obj);
         if (collision.collided)
         {
             // CRITICAL: For non-piercing skillshots, ANY collision invalidates the prediction
-            // Don't just reduce hitchance - completely block the cast
-            if (PredictionSettings::get().enable_debug_logging)
-            {
-                g_sdk->log_console("[Danny.Prediction] ⚠️ COLLISION DETECTED - Invalidating prediction!");
-            }
             result.is_valid = false;
             result.hitchance = pred_sdk::hitchance::any;
             return result;
-        }
-        else
-        {
-            if (PredictionSettings::get().enable_debug_logging)
-            {
-                g_sdk->log_console("[Danny.Prediction] ✓ No collision - path is clear");
-            }
-        }
-    }
-    else
-    {
-        if (PredictionSettings::get().enable_debug_logging)
-        {
-            g_sdk->log_console("[Danny.Prediction] No collision types configured - skipping collision check");
         }
     }
 
@@ -760,74 +733,33 @@ bool CustomPredictionSDK::check_collision_simple(
     const pred_sdk::spell_data& spell_data,
     const game_object* target_obj)
 {
-    if (PredictionSettings::get().enable_debug_logging)
-    {
-        char msg[256];
-        snprintf(msg, sizeof(msg), "[CollisionCheck] Checking path from (%.0f,%.0f) to (%.0f,%.0f) - spell radius=%.0f",
-            start.x, start.z, end.x, end.z, spell_data.radius);
-        g_sdk->log_console(msg);
-    }
-
     // Check each collision type
     for (auto collision_type : spell_data.forbidden_collisions)
     {
-        // Log which collision type we're checking
-        if (PredictionSettings::get().enable_debug_logging)
-        {
-            const char* type_name = "UNKNOWN";
-            int type_value = static_cast<int>(collision_type);
-
-            if (collision_type == pred_sdk::collision_type::unit) type_name = "UNIT (minions)";
-            else if (collision_type == pred_sdk::collision_type::hero) type_name = "HERO";
-            else if (collision_type == pred_sdk::collision_type::turret) type_name = "TURRET";
-            else if (collision_type == pred_sdk::collision_type::terrain) type_name = "TERRAIN";
-            else if (collision_type == pred_sdk::collision_type::yasuo_wall) type_name = "YASUO_WALL";
-            else if (collision_type == pred_sdk::collision_type::braum_wall) type_name = "BRAUM_WALL";
-
-            char msg[256];
-            snprintf(msg, sizeof(msg), "[CollisionCheck] → Checking collision type: %s (value=%d)", type_name, type_value);
-            g_sdk->log_console(msg);
-        }
-
         if (collision_type == pred_sdk::collision_type::unit)
         {
             auto minions = g_sdk->object_manager->get_minions();
 
-            if (PredictionSettings::get().enable_debug_logging)
-            {
-                char msg[256];
-                snprintf(msg, sizeof(msg), "[CollisionCheck] Checking %zu minions for collision",
-                    minions.size());
-                g_sdk->log_console(msg);
-            }
-
-            int minion_count = 0;
-            int enemy_minion_count = 0;
             for (auto* minion : minions)
             {
                 if (!minion || minion == target_obj)
                     continue;
 
-                minion_count++;
-
                 if (!is_collision_object(minion, spell_data))
                     continue;
 
-                // CRITICAL FIX: Only ENEMY minions block skillshots
-                // Ally minions do NOT block your own skillshots in League of Legends
+                // Only ENEMY minions block skillshots
                 if (minion->get_team_id() == spell_data.source->get_team_id())
                     continue;
 
-                enemy_minion_count++;
-
-                // Skip wards - they never block skillshots
+                // Skip wards
                 std::string name = minion->get_char_name();
                 if (name.find("Ward") != std::string::npos ||
                     name.find("Trinket") != std::string::npos ||
                     name.find("YellowTrinket") != std::string::npos)
                     continue;
 
-                // Simple point-to-line distance check
+                // Point-to-line distance check
                 math::vector3 minion_pos = minion->get_position();
                 math::vector3 line_dir = (end - start).normalized();
                 math::vector3 to_minion = minion_pos - start;
@@ -841,53 +773,15 @@ bool CustomPredictionSDK::check_collision_simple(
                 math::vector3 closest_point = start + line_dir * projection;
                 float distance = minion_pos.distance(closest_point);
 
-                // Debug log the distance calculation
-                if (PredictionSettings::get().enable_debug_logging)
-                {
-                    char msg[512];
-                    snprintf(msg, sizeof(msg),
-                        "[CollisionCheck] Minion %s at (%.0f,%.0f): distance=%.1f, threshold=%.1f (radius %.0f + bounds %.0f)",
-                        name.c_str(), minion_pos.x, minion_pos.z, distance,
-                        spell_data.radius + minion->get_bounding_radius(),
-                        spell_data.radius, minion->get_bounding_radius());
-                    g_sdk->log_console(msg);
-                }
-
                 if (distance <= spell_data.radius + minion->get_bounding_radius())
                 {
-                    if (PredictionSettings::get().enable_debug_logging)
-                    {
-                        char msg[256];
-                        snprintf(msg, sizeof(msg),
-                            "[Danny.Prediction] COLLISION DETECTED - Enemy minion (%s) blocking path!",
-                            minion->get_char_name().c_str());
-                        g_sdk->log_console(msg);
-                    }
-                    return true;
+                    return true;  // Collision detected
                 }
-            }
-
-            // Log summary after checking all minions
-            if (PredictionSettings::get().enable_debug_logging)
-            {
-                char msg[256];
-                snprintf(msg, sizeof(msg),
-                    "[CollisionCheck] Unit collision check complete: %d valid minions, %d enemy minions checked",
-                    minion_count, enemy_minion_count);
-                g_sdk->log_console(msg);
             }
         }
         else if (collision_type == pred_sdk::collision_type::hero)
         {
             auto heroes = g_sdk->object_manager->get_heroes();
-
-            if (PredictionSettings::get().enable_debug_logging)
-            {
-                char msg[256];
-                snprintf(msg, sizeof(msg), "[CollisionCheck] Checking %zu heroes for collision",
-                    heroes.size());
-                g_sdk->log_console(msg);
-            }
 
             for (auto* hero : heroes)
             {
@@ -897,8 +791,7 @@ bool CustomPredictionSDK::check_collision_simple(
                 if (!is_collision_object(hero, spell_data))
                     continue;
 
-                // CRITICAL FIX: Only ENEMY heroes block skillshots
-                // Ally heroes do NOT block your own skillshots in League of Legends
+                // Only ENEMY heroes block skillshots
                 if (hero->get_team_id() == spell_data.source->get_team_id())
                     continue;
 
@@ -917,54 +810,25 @@ bool CustomPredictionSDK::check_collision_simple(
 
                 if (distance <= spell_data.radius + hero->get_bounding_radius())
                 {
-                    if (PredictionSettings::get().enable_debug_logging)
-                    {
-                        char msg[256];
-                        snprintf(msg, sizeof(msg),
-                            "[Danny.Prediction] COLLISION DETECTED - Enemy hero (%s) blocking path!",
-                            hero->get_char_name().c_str());
-                        g_sdk->log_console(msg);
-                    }
-                    return true;
+                    return true;  // Collision detected
                 }
             }
         }
         else
         {
             // WORKAROUND: If collision type is unrecognized, default to checking minions
-            // This handles cases where the champion script passes an invalid enum value
-            if (PredictionSettings::get().enable_debug_logging)
-            {
-                g_sdk->log_console("[CollisionCheck] WARNING: Unknown collision type - defaulting to UNIT (minion) check");
-            }
-
-            // Use same minion check logic as unit collision
             auto minions = g_sdk->object_manager->get_minions();
 
-            if (PredictionSettings::get().enable_debug_logging)
-            {
-                char msg[256];
-                snprintf(msg, sizeof(msg), "[CollisionCheck] (Fallback) Checking %zu minions for collision",
-                    minions.size());
-                g_sdk->log_console(msg);
-            }
-
-            int minion_count = 0;
-            int enemy_minion_count = 0;
             for (auto* minion : minions)
             {
                 if (!minion || minion == target_obj)
                     continue;
-
-                minion_count++;
 
                 if (!is_collision_object(minion, spell_data))
                     continue;
 
                 if (minion->get_team_id() == spell_data.source->get_team_id())
                     continue;
-
-                enemy_minion_count++;
 
                 std::string name = minion->get_char_name();
                 if (name.find("Ward") != std::string::npos ||
@@ -985,37 +849,10 @@ bool CustomPredictionSDK::check_collision_simple(
                 math::vector3 closest_point = start + line_dir * projection;
                 float distance = minion_pos.distance(closest_point);
 
-                if (PredictionSettings::get().enable_debug_logging)
-                {
-                    char msg[512];
-                    snprintf(msg, sizeof(msg),
-                        "[CollisionCheck] (Fallback) Minion %s at (%.0f,%.0f): distance=%.1f, threshold=%.1f",
-                        name.c_str(), minion_pos.x, minion_pos.z, distance,
-                        spell_data.radius + minion->get_bounding_radius());
-                    g_sdk->log_console(msg);
-                }
-
                 if (distance <= spell_data.radius + minion->get_bounding_radius())
                 {
-                    if (PredictionSettings::get().enable_debug_logging)
-                    {
-                        char msg[256];
-                        snprintf(msg, sizeof(msg),
-                            "[Danny.Prediction] COLLISION DETECTED (Fallback) - Enemy minion (%s) blocking path!",
-                            minion->get_char_name().c_str());
-                        g_sdk->log_console(msg);
-                    }
-                    return true;
+                    return true;  // Collision detected
                 }
-            }
-
-            if (PredictionSettings::get().enable_debug_logging)
-            {
-                char msg[256];
-                snprintf(msg, sizeof(msg),
-                    "[CollisionCheck] (Fallback) Unit collision check complete: %d valid minions, %d enemy minions checked",
-                    minion_count, enemy_minion_count);
-                g_sdk->log_console(msg);
             }
         }
         // Terrain collision skipped - would need navmesh API

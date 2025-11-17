@@ -47,20 +47,52 @@ namespace PredictionVisuals
      */
     inline void draw_continuous_prediction(float current_time)
     {
+        // Debug log (once every 5 seconds)
+        static float last_debug_log = 0.f;
+        static bool has_drawn_successfully = false;
+
         // Safety checks
         if (!VisualsSettings::get().enabled)
+        {
+            if (g_sdk && current_time - last_debug_log > 5.0f)
+            {
+                g_sdk->log_console("[PredVisuals] Visuals disabled in settings");
+                last_debug_log = current_time;
+            }
             return;
+        }
 
         if (!g_sdk || !g_sdk->renderer)
+        {
+            if (g_sdk && current_time - last_debug_log > 5.0f)
+            {
+                g_sdk->log_console("[PredVisuals] Renderer not available");
+                last_debug_log = current_time;
+            }
             return;
+        }
 
         if (!sdk::target_selector)
+        {
+            if (current_time - last_debug_log > 5.0f)
+            {
+                g_sdk->log_console("[PredVisuals] Target selector not available");
+                last_debug_log = current_time;
+            }
             return;
+        }
 
         // Get current target from target selector with additional safety
         auto* target = sdk::target_selector->get_hero_target();
         if (!target)
+        {
+            if (current_time - last_debug_log > 5.0f)
+            {
+                g_sdk->log_console("[PredVisuals] No target selected by target selector");
+                last_debug_log = current_time;
+            }
             return;
+        }
 
         // CRITICAL: Additional validity checks to prevent crashes
         if (!target->is_valid())
@@ -91,6 +123,16 @@ namespace PredictionVisuals
 
         // Simple linear prediction: position + velocity * time
         math::vector3 predicted_pos = current_pos + velocity * settings.prediction_time;
+
+        // Log first successful draw
+        if (!has_drawn_successfully)
+        {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "[PredVisuals] Drawing for target: %s at (%.0f, %.0f, %.0f)",
+                target->get_char_name().c_str(), current_pos.x, current_pos.y, current_pos.z);
+            g_sdk->log_console(msg);
+            has_drawn_successfully = true;
+        }
 
         // Draw current position (green circle)
         if (settings.draw_current_position)
