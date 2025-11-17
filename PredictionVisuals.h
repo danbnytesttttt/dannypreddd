@@ -75,10 +75,48 @@ namespace PredictionVisuals
         float current_time)
     {
         if (!VisualsSettings::get().enabled)
+        {
+            if (g_sdk)
+            {
+                static bool logged_disabled = false;
+                if (!logged_disabled)
+                {
+                    g_sdk->log_console("[PredVisuals] Visuals disabled in settings");
+                    logged_disabled = true;
+                }
+            }
             return;
+        }
 
+        // Debug: Log what spell_slot we received
+        if (g_sdk)
+        {
+            static int debug_count = 0;
+            if (debug_count++ < 3)  // Log first 3 calls
+            {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "[PredVisuals] store_prediction() called - spell_slot=%d, radius=%.0f",
+                    spell_slot, spell_radius);
+                g_sdk->log_console(msg);
+            }
+        }
+
+        // If spell_slot is invalid, use slot 0 as fallback so visuals still work
         if (spell_slot < 0 || spell_slot > 3)
-            return;
+        {
+            if (g_sdk)
+            {
+                static bool logged_fallback = false;
+                if (!logged_fallback)
+                {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "[PredVisuals] Invalid spell_slot %d, using slot 0 as fallback", spell_slot);
+                    g_sdk->log_console(msg);
+                    logged_fallback = true;
+                }
+            }
+            spell_slot = 0;  // Fallback to Q slot
+        }
 
         auto& data = g_recent_predictions[spell_slot];
         data.source_position = source_pos;
