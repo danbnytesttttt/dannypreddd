@@ -221,25 +221,30 @@ namespace PredictionVisuals
             catch (...) { /* Ignore render errors */ }
         }
 
-        // Draw movement line (yellow line from current to predicted)
+        // Draw skillshot line (yellow line from player to predicted enemy position)
         if (settings.draw_movement_line)
         {
             try
             {
-                math::vector2 screen_current = g_sdk->renderer->world_to_screen(current_pos);
-                math::vector2 screen_predicted = g_sdk->renderer->world_to_screen(predicted_pos);
-
-                bool current_valid = (screen_current.x != 0.f || screen_current.y != 0.f);
-                bool predicted_valid = (screen_predicted.x != 0.f || screen_predicted.y != 0.f);
-
-                if (current_valid && predicted_valid)
+                auto* local_player = g_sdk->object_manager->get_local_player();
+                if (local_player)
                 {
-                    g_sdk->renderer->add_line_2d(
-                        screen_current,
-                        screen_predicted,
-                        settings.line_thickness,
-                        settings.movement_line_color
-                    );
+                    math::vector3 player_pos = local_player->get_position();
+                    math::vector2 screen_player = g_sdk->renderer->world_to_screen(player_pos);
+                    math::vector2 screen_predicted = g_sdk->renderer->world_to_screen(predicted_pos);
+
+                    bool player_valid = (screen_player.x != 0.f || screen_player.y != 0.f);
+                    bool predicted_valid = (screen_predicted.x != 0.f || screen_predicted.y != 0.f);
+
+                    if (player_valid && predicted_valid)
+                    {
+                        g_sdk->renderer->add_line_2d(
+                            screen_player,
+                            screen_predicted,
+                            settings.line_thickness,
+                            settings.movement_line_color
+                        );
+                    }
                 }
             }
             catch (...) { /* Ignore render errors */ }
