@@ -175,12 +175,15 @@ namespace HybridPred
             }
 
             // Stationary target detection (NEW)
+            // CRITICAL: Don't treat fog-frozen targets as stationary
+            // When enemies enter fog, their velocity becomes zero but they're not truly stationary
             float velocity_magnitude = snapshot.velocity.magnitude();
             bool was_stationary = is_currently_stationary_;
+            bool is_visible = target_->is_visible();
 
-            if (velocity_magnitude < STATIONARY_VELOCITY_THRESHOLD)
+            if (velocity_magnitude < STATIONARY_VELOCITY_THRESHOLD && is_visible)
             {
-                // Target is stationary
+                // Target is stationary AND visible (not frozen in fog)
                 if (!was_stationary)
                 {
                     // Just became stationary - start timer
@@ -191,7 +194,7 @@ namespace HybridPred
             }
             else
             {
-                // Target is moving - reset stationary state
+                // Target is moving OR not visible - reset stationary state
                 if (was_stationary)
                 {
                     is_currently_stationary_ = false;
