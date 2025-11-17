@@ -577,6 +577,18 @@ namespace HybridPred
             return pdf;
         }
 
+        // CRITICAL FIX: If target is stationary (very low velocity), predict at current position
+        // This prevents old movement history from pulling predictions off-target
+        // Even if dummy was moving 2 seconds ago, if it's stationary NOW, predict stationary
+        constexpr float STATIONARY_THRESHOLD = 10.f;  // units/sec
+        if (latest.velocity.magnitude() < STATIONARY_THRESHOLD)
+        {
+            pdf.origin = latest.position;
+            pdf.add_weighted_sample(latest.position, 1.0f);
+            pdf.normalize();
+            return pdf;
+        }
+
         // First pass: Compute weighted average of predicted positions
         // This centers the grid where samples will actually fall, not just where latest velocity predicts
         math::vector3 predicted_center{};
