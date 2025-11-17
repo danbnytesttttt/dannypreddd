@@ -50,6 +50,17 @@ namespace PredictionVisuals
         // Debug log (once every 5 seconds)
         static float last_debug_log = 0.f;
         static bool has_drawn_successfully = false;
+        static bool function_called_logged = false;
+
+        // Log once to confirm function is being called
+        if (!function_called_logged && g_sdk)
+        {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "[PredVisuals] draw_continuous_prediction() called - enabled=%d",
+                VisualsSettings::get().enabled);
+            g_sdk->log_console(msg);
+            function_called_logged = true;
+        }
 
         // Safety checks
         if (!VisualsSettings::get().enabled)
