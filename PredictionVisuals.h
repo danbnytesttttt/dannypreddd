@@ -26,9 +26,9 @@ namespace PredictionVisuals
         bool draw_movement_line = true;          // Draw line current → predicted
         float prediction_time = 0.75f;           // How far ahead to predict (seconds)
 
-        uint32_t current_pos_color = 0xFF00FF00;    // Green - where enemy is NOW
-        uint32_t predicted_pos_color = 0xFFFF0000;  // Neon red - where they'll be
-        uint32_t movement_line_color = 0xFFFFFF00;  // Yellow - skillshot line
+        uint32_t current_pos_color = 0xFF00FF00;    // Green - where enemy is NOW (not used, kept for menu compatibility)
+        uint32_t predicted_pos_color = 0xFFE19D9D;  // Salmon/pink - prediction indicator
+        uint32_t movement_line_color = 0xFFE19D9D;  // Salmon/pink - skillshot line
 
         float current_circle_radius = 65.0f;
         float predicted_circle_radius = 80.0f;
@@ -112,22 +112,22 @@ namespace PredictionVisuals
         // Simple linear prediction: position + velocity * time
         math::vector3 predicted_pos = current_pos + velocity * settings.prediction_time;
 
-        // Draw current position (green circle)
-        if (settings.draw_current_position)
-        {
-            try
-            {
-                g_sdk->renderer->add_circle_3d(
-                    current_pos,
-                    settings.current_circle_radius,
-                    settings.circle_thickness,
-                    settings.current_pos_color
-                );
-            }
-            catch (...) { /* Ignore render errors */ }
-        }
+        // Calculate hitchance based on how far enemy can move
+        float velocity_magnitude = velocity.magnitude();
+        float reachable_radius = velocity_magnitude * settings.prediction_time;
 
-        // Draw predicted position (red circle)
+        // Simple hitchance calculation: higher movement = lower hitchance
+        // If enemy can move 0 units: 100% hitchance
+        // If enemy can move 300+ units: 0% hitchance
+        float hitchance_percent = 100.0f - (reachable_radius / 3.0f);
+        if (hitchance_percent < 0.0f) hitchance_percent = 0.0f;
+        if (hitchance_percent > 100.0f) hitchance_percent = 100.0f;
+
+        // Only draw if hitchance >= 50%
+        if (hitchance_percent < 50.0f)
+            return;
+
+        // Draw predicted position (salmon/pink circle)
         if (settings.draw_predicted_position)
         {
             try

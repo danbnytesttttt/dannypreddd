@@ -147,7 +147,7 @@ namespace Prediction
             prediction_menu->add_separator();
 
             // === VISUALS SECTION ===
-            prediction_menu->add_label("Prediction Visuals (Current Target Only)");
+            prediction_menu->add_label("Prediction Visuals (50%+ HitChance Only)");
 
             // Enable/Disable Visuals
             prediction_menu->add_checkbox(
@@ -159,20 +159,10 @@ namespace Prediction
                 }
             );
 
-            // Draw Current Position
-            prediction_menu->add_checkbox(
-                "draw_current_position",
-                "Show Current Position (Green)",
-                true,
-                [](bool value) {
-                    PredictionVisuals::VisualsSettings::get().draw_current_position = value;
-                }
-            );
-
             // Draw Predicted Position
             prediction_menu->add_checkbox(
                 "draw_predicted_position",
-                "Show Predicted Position (Red)",
+                "Show Prediction Circle",
                 true,
                 [](bool value) {
                     PredictionVisuals::VisualsSettings::get().draw_predicted_position = value;
@@ -182,7 +172,7 @@ namespace Prediction
             // Draw Movement Line
             prediction_menu->add_checkbox(
                 "draw_movement_line",
-                "Show Movement Line (Yellow)",
+                "Show Skillshot Line",
                 true,
                 [](bool value) {
                     PredictionVisuals::VisualsSettings::get().draw_movement_line = value;
@@ -199,7 +189,7 @@ namespace Prediction
                 }
             );
 
-            prediction_menu->add_label("Green=Current | Red=Predicted | Yellow=Movement");
+            prediction_menu->add_label("Circle + Line from you to predicted position");
 
             prediction_menu->add_separator();
 
