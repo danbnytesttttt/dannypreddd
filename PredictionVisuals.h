@@ -127,10 +127,10 @@ namespace PredictionVisuals
 
             // Calculate velocity from path (same as prediction SDK does)
             auto path = target->get_path();
-            if (path && path->count() > 1)
+            if (path.size() > 1)
             {
                 // Get direction to next waypoint
-                math::vector3 next_waypoint = path->get(1);
+                math::vector3 next_waypoint = path[1];
                 math::vector3 direction = (next_waypoint - current_pos).normalized();
 
                 // Velocity = direction * move_speed
