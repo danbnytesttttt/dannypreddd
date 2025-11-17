@@ -487,7 +487,7 @@ namespace HybridPred
         // Use improved animation lock detection if available
         if (target_ && target_->is_valid())
         {
-            return is_animation_locked(target_);
+            return is_animation_locked_full(target_);
         }
 
         // Fallback to snapshot data
