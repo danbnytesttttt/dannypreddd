@@ -2,6 +2,7 @@
 #include "EdgeCaseDetection.h"
 #include "PredictionSettings.h"
 #include "PredictionTelemetry.h"
+#include "PredictionVisuals.h"
 #include <algorithm>
 #include <limits>
 #include <sstream>
@@ -321,6 +322,20 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         event.collision_detected = false;  // Will be updated if collision check fails
 
         PredictionTelemetry::TelemetryLogger::log_prediction(event);
+    }
+
+    // Store prediction for visual drawing
+    if (result.is_valid && PredictionVisuals::VisualsSettings::get().enabled)
+    {
+        PredictionVisuals::store_prediction(
+            spell_data.source->get_position(),
+            hybrid_result.predicted_position,
+            result.cast_position,
+            spell_data.radius,
+            spell_data.spell_slot,
+            obj->get_char_name(),
+            g_sdk->clock_facade->get_game_time()
+        );
     }
 
     return result;

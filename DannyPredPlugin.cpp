@@ -2,6 +2,7 @@
 #include "CustomPredictionSDK.h"
 #include "PredictionSettings.h"
 #include "PredictionTelemetry.h"
+#include "PredictionVisuals.h"
 
 CustomPredictionSDK customPrediction;
 
@@ -38,6 +39,9 @@ void __fastcall on_update()
         }
         last_check_time = current_time;
     }
+
+    // Draw prediction visuals
+    PredictionVisuals::draw_predictions(current_time);
 }
 
 namespace Prediction
@@ -111,6 +115,83 @@ namespace Prediction
 
             prediction_menu->add_label("Bind a key above to output telemetry on demand");
 
+            prediction_menu->add_separator();
+
+            // === VISUALS SECTION ===
+            prediction_menu->add_label("Prediction Visuals");
+
+            // Enable/Disable Visuals
+            prediction_menu->add_checkbox(
+                "enable_prediction_visuals",
+                "Enable Prediction Visuals",
+                true,
+                [](bool value) {
+                    PredictionVisuals::VisualsSettings::get().enabled = value;
+                }
+            );
+
+            // Draw Line Toggle
+            prediction_menu->add_checkbox(
+                "draw_prediction_line",
+                "Draw Line to Target",
+                true,
+                [](bool value) {
+                    PredictionVisuals::VisualsSettings::get().draw_line = value;
+                }
+            );
+
+            // Draw Circle Toggle
+            prediction_menu->add_checkbox(
+                "draw_prediction_circle",
+                "Draw Circle at Cast Position",
+                true,
+                [](bool value) {
+                    PredictionVisuals::VisualsSettings::get().draw_circle = value;
+                }
+            );
+
+            // Line Color
+            prediction_menu->add_colorpicker(
+                "prediction_line_color",
+                "Line Color",
+                0xFF6060FF,  // Light red with alpha (ARGB)
+                [](uint32_t color) {
+                    PredictionVisuals::VisualsSettings::get().line_color = color;
+                }
+            );
+
+            // Circle Color
+            prediction_menu->add_colorpicker(
+                "prediction_circle_color",
+                "Circle Color",
+                0xFF6060FF,  // Light red with alpha (ARGB)
+                [](uint32_t color) {
+                    PredictionVisuals::VisualsSettings::get().circle_color = color;
+                }
+            );
+
+            // Line Thickness
+            prediction_menu->add_slider_float(
+                "prediction_line_thickness",
+                "Line Thickness",
+                1.0f, 5.0f, 0.5f, 2.0f,
+                [](float value) {
+                    PredictionVisuals::VisualsSettings::get().line_thickness = value;
+                }
+            );
+
+            // Circle Thickness
+            prediction_menu->add_slider_float(
+                "prediction_circle_thickness",
+                "Circle Thickness",
+                1.0f, 5.0f, 0.5f, 2.0f,
+                [](float value) {
+                    PredictionVisuals::VisualsSettings::get().circle_thickness = value;
+                }
+            );
+
+            prediction_menu->add_separator();
+
             // Grid Search Quality
             std::vector<std::string> quality_options = {
                 "Performance (8x8)",
@@ -180,6 +261,9 @@ namespace Prediction
 
         // Unregister callback
         g_sdk->event_manager->unregister_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
+
+        // Clean up prediction visuals
+        PredictionVisuals::clear();
 
         // Clean up all trackers
         HybridPred::PredictionManager::clear();
