@@ -49,14 +49,30 @@ pred_sdk::pred_data CustomPredictionSDK::targetted(pred_sdk::spell_data spell_da
 
 pred_sdk::pred_data CustomPredictionSDK::predict(pred_sdk::spell_data spell_data)
 {
-    PRED_DEBUG_LOG("[Danny.Prediction] Auto-target predict() called");
+    if (PredictionSettings::get().enable_debug_logging)
+    {
+        char debug_msg[512];
+        snprintf(debug_msg, sizeof(debug_msg),
+            "[Danny.Prediction] Auto-target predict() - source=0x%p range=%.0f type=%d",
+            (void*)spell_data.source, spell_data.range, static_cast<int>(spell_data.spell_type));
+        g_sdk->log_console(debug_msg);
+    }
+
+    // If source is null, use local player as fallback
+    if (!spell_data.source || !spell_data.source->is_valid())
+    {
+        spell_data.source = g_sdk->object_manager->get_local_player();
+        if (PredictionSettings::get().enable_debug_logging)
+            g_sdk->log_console("[Danny.Prediction] Auto-target: Using local player as source");
+    }
 
     // Auto-select best target
     game_object* best_target = get_best_target(spell_data);
 
     if (!best_target)
     {
-        PRED_DEBUG_LOG("[Danny.Prediction] Auto-target: No valid target found");
+        if (PredictionSettings::get().enable_debug_logging)
+            g_sdk->log_console("[Danny.Prediction] Auto-target: No valid target found");
         pred_sdk::pred_data result{};
         result.hitchance = pred_sdk::hitchance::any;
         return result;
@@ -504,7 +520,11 @@ pred_sdk::hitchance CustomPredictionSDK::convert_hit_chance_to_enum(float hit_ch
 game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& spell_data)
 {
     if (!spell_data.source || !spell_data.source->is_valid())
+    {
+        if (PredictionSettings::get().enable_debug_logging)
+            g_sdk->log_console("[Danny.Prediction] get_best_target: Invalid source");
         return nullptr;
+    }
 
     // Try target selector first if available
     game_object* ts_target = nullptr;
@@ -512,15 +532,43 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
     {
         ts_target = sdk::target_selector->get_hero_target();
 
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            if (ts_target)
+            {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "[Danny.Prediction] TS returned: %s (valid=%d dead=%d)",
+                    ts_target->get_char_name().c_str(), ts_target->is_valid(), ts_target->is_dead());
+                g_sdk->log_console(msg);
+            }
+            else
+            {
+                g_sdk->log_console("[Danny.Prediction] TS returned null");
+            }
+        }
+
         // If target selector returned a valid target in range, use it
         if (ts_target && ts_target->is_valid() && !ts_target->is_dead())
         {
             float distance = ts_target->get_position().distance(spell_data.source->get_position());
             if (distance <= spell_data.range + 200.f)
             {
+                if (PredictionSettings::get().enable_debug_logging)
+                    g_sdk->log_console("[Danny.Prediction] Using TS target");
                 return ts_target;
             }
+            else if (PredictionSettings::get().enable_debug_logging)
+            {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "[Danny.Prediction] TS target out of range: %.0f > %.0f",
+                    distance, spell_data.range + 200.f);
+                g_sdk->log_console(msg);
+            }
         }
+    }
+    else if (PredictionSettings::get().enable_debug_logging)
+    {
+        g_sdk->log_console("[Danny.Prediction] Target selector not available - using fallback");
     }
 
     // Fallback: Find best target based on hybrid prediction score
