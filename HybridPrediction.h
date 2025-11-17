@@ -421,11 +421,23 @@ namespace HybridPred
         );
 
         /**
-         * Compute time for projectile to reach target
+         * Compute time for projectile to reach target (stationary)
          */
         static float compute_arrival_time(
             const math::vector3& source_pos,
             const math::vector3& target_pos,
+            float projectile_speed,
+            float cast_delay
+        );
+
+        /**
+         * Compute time for projectile to intercept MOVING target
+         * Uses iterative solver to account for target movement during travel time
+         */
+        static float compute_arrival_time_moving_target(
+            const math::vector3& source_pos,
+            const math::vector3& target_pos,
+            const math::vector3& target_velocity,
             float projectile_speed,
             float cast_delay
         );

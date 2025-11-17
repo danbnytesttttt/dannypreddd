@@ -1101,6 +1101,54 @@ namespace HybridPred
         return cast_delay + (distance / projectile_speed);
     }
 
+    float PhysicsPredictor::compute_arrival_time_moving_target(
+        const math::vector3& source_pos,
+        const math::vector3& target_pos,
+        const math::vector3& target_velocity,
+        float projectile_speed,
+        float cast_delay)
+    {
+        // CRITICAL FIX: Iterative solver for moving target interception
+        // Problem: Target moves during projectile travel time
+        // Solution: Iteratively solve for intercept point
+
+        // Handle instant spells
+        if (projectile_speed < EPSILON || projectile_speed >= FLT_MAX / 2.f)
+            return cast_delay;
+
+        // Check if target is stationary (velocity near zero)
+        float target_speed = target_velocity.magnitude();
+        constexpr float STATIONARY_THRESHOLD = 10.f;
+        if (target_speed < STATIONARY_THRESHOLD)
+        {
+            // Stationary - use simple calculation
+            return compute_arrival_time(source_pos, target_pos, projectile_speed, cast_delay);
+        }
+
+        // Iterative solver (converges in 3-4 iterations)
+        float arrival_time = cast_delay;
+        float prev_arrival_time = 0.f;
+
+        for (int iter = 0; iter < 5; ++iter)
+        {
+            // Predict where target will be at current arrival_time estimate
+            math::vector3 predicted_pos = target_pos + target_velocity * arrival_time;
+
+            // Calculate travel time to that predicted position
+            float distance = (predicted_pos - source_pos).magnitude();
+            float new_arrival_time = cast_delay + (distance / projectile_speed);
+
+            // Check for convergence
+            if (std::abs(new_arrival_time - prev_arrival_time) < 0.001f)
+                break;
+
+            prev_arrival_time = arrival_time;
+            arrival_time = new_arrival_time;
+        }
+
+        return arrival_time;
+    }
+
     float PhysicsPredictor::circle_circle_intersection_area(
         const math::vector3& c1, float r1,
         const math::vector3& c2, float r2)
@@ -1538,17 +1586,21 @@ namespace HybridPred
     {
         HybridPredictionResult result;
 
-        // Step 1: Compute arrival time
-        float arrival_time = PhysicsPredictor::compute_arrival_time(
+        // Get target velocity BEFORE arrival time calculation
+        math::vector3 target_velocity = tracker.get_current_velocity();
+        float move_speed = target->get_move_speed();
+
+        // Step 1: Compute arrival time using ITERATIVE solver for moving targets
+        // CRITICAL FIX: Must account for target movement during projectile travel
+        float arrival_time = PhysicsPredictor::compute_arrival_time_moving_target(
             source->get_position(),
             target->get_position(),
+            target_velocity,
             spell.projectile_speed,
             spell.delay
         );
 
         // Step 2: Build reachable region (physics)
-        math::vector3 target_velocity = tracker.get_current_velocity();
-        float move_speed = target->get_move_speed();
 
         ReachableRegion reachable_region = PhysicsPredictor::compute_reachable_region(
             target->get_position(),
@@ -1892,17 +1944,21 @@ namespace HybridPred
             return result;
         }
 
-        // Step 1: Compute arrival time
-        float arrival_time = PhysicsPredictor::compute_arrival_time(
+        // Get target velocity BEFORE arrival time calculation
+        math::vector3 target_velocity = tracker.get_current_velocity();
+        float move_speed = target->get_move_speed();
+
+        // Step 1: Compute arrival time using ITERATIVE solver for moving targets
+        // CRITICAL FIX: Must account for target movement during projectile travel
+        float arrival_time = PhysicsPredictor::compute_arrival_time_moving_target(
             source->get_position(),
             target->get_position(),
+            target_velocity,
             spell.projectile_speed,
             spell.delay
         );
 
         // Step 2: Build reachable region (physics)
-        math::vector3 target_velocity = tracker.get_current_velocity();
-        float move_speed = target->get_move_speed();
 
         ReachableRegion reachable_region = PhysicsPredictor::compute_reachable_region(
             target->get_position(),
