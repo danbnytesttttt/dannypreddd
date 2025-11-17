@@ -217,7 +217,23 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         case pred_sdk::hitchance::any: thresh_name = "ANY(0)"; break;
     }
 
-    bool should_cast = (result.hitchance >= spell_data.expected_hitchance);
+    // CRITICAL: Check if cast position is within spell range
+    // For linear spells, cast_position is at max range in target direction
+    // We need to verify target is actually reachable
+    float distance_to_target = obj->get_position().distance(spell_data.source->get_position());
+    bool in_range = (distance_to_target <= spell_data.range + 100.f); // +100 buffer for movement/positioning
+
+    bool should_cast = (result.hitchance >= spell_data.expected_hitchance) && in_range;
+
+    // Debug: Log range check failures
+    if (!in_range && PredictionSettings::get().enable_debug_logging)
+    {
+        char range_msg[256];
+        snprintf(range_msg, sizeof(range_msg),
+            "[Danny.Prediction] Target out of range: %.0f > %.0f (spell range)",
+            distance_to_target, spell_data.range);
+        g_sdk->log_console(range_msg);
+    }
 
     // CONCISE DEBUG: Only log when actually casting
     if (should_cast && PredictionSettings::get().enable_debug_logging)
