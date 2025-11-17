@@ -929,6 +929,95 @@ bool CustomPredictionSDK::check_collision_simple(
                 }
             }
         }
+        else
+        {
+            // WORKAROUND: If collision type is unrecognized, default to checking minions
+            // This handles cases where the champion script passes an invalid enum value
+            if (PredictionSettings::get().enable_debug_logging)
+            {
+                g_sdk->log_console("[CollisionCheck] WARNING: Unknown collision type - defaulting to UNIT (minion) check");
+            }
+
+            // Use same minion check logic as unit collision
+            auto minions = g_sdk->object_manager->get_minions();
+
+            if (PredictionSettings::get().enable_debug_logging)
+            {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "[CollisionCheck] (Fallback) Checking %zu minions for collision",
+                    minions.size());
+                g_sdk->log_console(msg);
+            }
+
+            int minion_count = 0;
+            int enemy_minion_count = 0;
+            for (auto* minion : minions)
+            {
+                if (!minion || minion == target_obj)
+                    continue;
+
+                minion_count++;
+
+                if (!is_collision_object(minion, spell_data))
+                    continue;
+
+                if (minion->get_team_id() == spell_data.source->get_team_id())
+                    continue;
+
+                enemy_minion_count++;
+
+                std::string name = minion->get_char_name();
+                if (name.find("Ward") != std::string::npos ||
+                    name.find("Trinket") != std::string::npos ||
+                    name.find("YellowTrinket") != std::string::npos)
+                    continue;
+
+                math::vector3 minion_pos = minion->get_position();
+                math::vector3 line_dir = (end - start).normalized();
+                math::vector3 to_minion = minion_pos - start;
+
+                float projection = to_minion.dot(line_dir);
+                float line_length = start.distance(end);
+
+                if (projection < 0.f || projection > line_length)
+                    continue;
+
+                math::vector3 closest_point = start + line_dir * projection;
+                float distance = minion_pos.distance(closest_point);
+
+                if (PredictionSettings::get().enable_debug_logging)
+                {
+                    char msg[512];
+                    snprintf(msg, sizeof(msg),
+                        "[CollisionCheck] (Fallback) Minion %s at (%.0f,%.0f): distance=%.1f, threshold=%.1f",
+                        name.c_str(), minion_pos.x, minion_pos.z, distance,
+                        spell_data.radius + minion->get_bounding_radius());
+                    g_sdk->log_console(msg);
+                }
+
+                if (distance <= spell_data.radius + minion->get_bounding_radius())
+                {
+                    if (PredictionSettings::get().enable_debug_logging)
+                    {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                            "[Danny.Prediction] COLLISION DETECTED (Fallback) - Enemy minion (%s) blocking path!",
+                            minion->get_char_name().c_str());
+                        g_sdk->log_console(msg);
+                    }
+                    return true;
+                }
+            }
+
+            if (PredictionSettings::get().enable_debug_logging)
+            {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                    "[CollisionCheck] (Fallback) Unit collision check complete: %d valid minions, %d enemy minions checked",
+                    minion_count, enemy_minion_count);
+                g_sdk->log_console(msg);
+            }
+        }
         // Terrain collision skipped - would need navmesh API
     }
 
