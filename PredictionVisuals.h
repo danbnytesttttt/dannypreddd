@@ -147,9 +147,10 @@ namespace PredictionVisuals
 
         // TEST: Draw a circle at player position to verify renderer works
         static bool test_logged = false;
-        if (g_sdk->local_player)
+        auto* local_player = g_sdk->object_manager->get_local_player();
+        if (local_player)
         {
-            math::vector3 player_pos = g_sdk->local_player->get_position();
+            math::vector3 player_pos = local_player->get_position();
 
             // Draw HUGE bright white circle at player feet
             g_sdk->renderer->add_circle_3d(
