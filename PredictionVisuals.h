@@ -138,17 +138,12 @@ namespace PredictionVisuals
         // Log first successful draw and velocity info
         if (!has_drawn_successfully)
         {
+            float vel_mag = velocity.magnitude();
             char msg[512];
             snprintf(msg, sizeof(msg),
-                "[PredVisuals] Drawing for target: %s\n"
-                "  Current: (%.0f, %.0f, %.0f)\n"
-                "  Velocity: (%.1f, %.1f, %.1f) magnitude=%.1f\n"
-                "  Predicted: (%.0f, %.0f, %.0f)\n"
-                "  Pred Time: %.2fs",
+                "[PredVisuals] Target: %s | Vel: (%.1f,%.1f,%.1f) mag=%.1f | PredTime: %.2fs",
                 target->get_char_name().c_str(),
-                current_pos.x, current_pos.y, current_pos.z,
-                velocity.x, velocity.y, velocity.z, velocity.length(),
-                predicted_pos.x, predicted_pos.y, predicted_pos.z,
+                velocity.x, velocity.y, velocity.z, vel_mag,
                 settings.prediction_time);
             g_sdk->log_console(msg);
             has_drawn_successfully = true;
