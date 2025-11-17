@@ -80,7 +80,7 @@ inline bool is_knocked_up(game_object* obj)
 }
 
 // FIXED: Improved animation lock detection includes AA windup phase
-inline bool is_animation_locked(game_object* obj)
+inline bool is_animation_locked_full(game_object* obj)
 {
     if (!obj) return false;
     auto active_cast = obj->get_active_spell_cast();

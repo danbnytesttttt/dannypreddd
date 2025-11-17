@@ -11,58 +11,13 @@ std::string MyHeroNamePredCore;
 // Telemetry session tracking
 float g_session_start_time = 0.f;
 
-// Menu instances
-namespace menu_sdk = sdk::menu;
-menu_sdk::menu_item* prediction_menu = nullptr;
-
-// Menu items
-menu_sdk::menu_item* enable_dash_prediction_item = nullptr;
-menu_sdk::menu_item* enable_debug_logging_item = nullptr;
-menu_sdk::menu_item* enable_telemetry_item = nullptr;
-menu_sdk::menu_item* grid_search_quality_item = nullptr;
-
-// Menu callback to update settings
-void update_menu_settings()
-{
-    auto& settings = PredictionSettings::get();
-
-    if (enable_dash_prediction_item)
-        settings.enable_dash_prediction = enable_dash_prediction_item->get_bool();
-
-    if (enable_debug_logging_item)
-        settings.enable_debug_logging = enable_debug_logging_item->get_bool();
-
-    if (enable_telemetry_item)
-        settings.enable_telemetry = enable_telemetry_item->get_bool();
-
-    if (grid_search_quality_item)
-    {
-        int quality = grid_search_quality_item->get_int();
-        // 0 = Performance (8), 1 = Balanced (10), 2 = Quality (12), 3 = Maximum (16)
-        switch (quality)
-        {
-            case 0: settings.grid_search_resolution = 8; break;
-            case 1: settings.grid_search_resolution = 10; break;
-            case 2: settings.grid_search_resolution = 12; break;
-            case 3: settings.grid_search_resolution = 16; break;
-            default: settings.grid_search_resolution = 8; break;
-        }
-    }
-}
+// Menu instance
+menu_category* prediction_menu = nullptr;
 
 // Update callback function
 void __fastcall on_update()
 {
     CustomPredictionSDK::update_trackers();
-
-    // Update settings from menu (only do this occasionally to avoid overhead)
-    static float last_menu_update = 0.f;
-    float current_time = g_sdk->clock_facade->get_game_time();
-    if (current_time - last_menu_update >= 0.5f)  // Update every 500ms
-    {
-        update_menu_settings();
-        last_menu_update = current_time;
-    }
 
     // FORCE-SET the SDK pointer every frame (in case platform overwrites it)
     if (sdk::prediction != &customPrediction)
@@ -72,6 +27,7 @@ void __fastcall on_update()
 
     // Verify plugin is active and prediction SDK is accessible
     static float last_check_time = 0.f;
+    float current_time = g_sdk->clock_facade->get_game_time();
     if (current_time - last_check_time >= 10.0f)
     {
         // Check if sdk::prediction points to our implementation
@@ -92,66 +48,81 @@ namespace Prediction
 {
     void LoadMenu()
     {
-        // Create main prediction menu
-        prediction_menu = g_sdk->menu_manager->create_menu("danny_prediction", "Danny Prediction");
+        if (!g_sdk || !g_sdk->menu_manager)
+        {
+            g_sdk->log_console("[Danny.Prediction] WARNING: Menu manager not available");
+            return;
+        }
+
+        // Create main prediction menu category
+        prediction_menu = g_sdk->menu_manager->add_category("danny_prediction", "Danny Prediction");
 
         if (prediction_menu)
         {
+            // Info label
+            prediction_menu->add_label("Danny Prediction v1.0 - Hybrid Physics + Behavior");
+            prediction_menu->add_separator();
+
             // Dash Prediction Toggle
-            enable_dash_prediction_item = prediction_menu->add_checkbox(
+            prediction_menu->add_checkbox(
                 "enable_dash_prediction",
                 "Enable Dash Prediction",
-                true
+                true,
+                [](bool value) {
+                    PredictionSettings::get().enable_dash_prediction = value;
+                }
             );
-            enable_dash_prediction_item->set_tooltip("Predict enemy position at dash endpoint (disable if causing issues)");
 
             // Debug Logging Toggle
-            enable_debug_logging_item = prediction_menu->add_checkbox(
+            prediction_menu->add_checkbox(
                 "enable_debug_logging",
                 "Enable Debug Logging",
-                false
+                false,
+                [](bool value) {
+                    PredictionSettings::get().enable_debug_logging = value;
+                }
             );
-            enable_debug_logging_item->set_tooltip("Enable verbose console logging for debugging (may impact performance)");
 
             // Telemetry Toggle
-            enable_telemetry_item = prediction_menu->add_checkbox(
+            prediction_menu->add_checkbox(
                 "enable_telemetry",
                 "Enable Telemetry",
-                true
-            );
-            enable_telemetry_item->set_tooltip(
-                "Log prediction data to file for post-game analysis\n"
-                "File: dannypred_telemetry_TIMESTAMP.txt\n"
-                "Send this file for performance analysis"
+                true,
+                [](bool value) {
+                    PredictionSettings::get().enable_telemetry = value;
+                }
             );
 
             // Grid Search Quality
-            grid_search_quality_item = prediction_menu->add_combobox(
+            std::vector<std::string> quality_options = {
+                "Performance (8x8)",
+                "Balanced (10x10)",
+                "Quality (12x12)",
+                "Maximum (16x16)"
+            };
+
+            prediction_menu->add_combo(
                 "grid_search_quality",
                 "Prediction Quality",
-                { "Performance (Fast)", "Balanced", "Quality", "Maximum (Slow)" },
-                0  // Default: Performance
+                quality_options,
+                0,  // Default: Performance
+                [](int value) {
+                    switch (value)
+                    {
+                        case 0: PredictionSettings::get().grid_search_resolution = 8; break;
+                        case 1: PredictionSettings::get().grid_search_resolution = 10; break;
+                        case 2: PredictionSettings::get().grid_search_resolution = 12; break;
+                        case 3: PredictionSettings::get().grid_search_resolution = 16; break;
+                        default: PredictionSettings::get().grid_search_resolution = 8; break;
+                    }
+                }
             );
-            grid_search_quality_item->set_tooltip(
-                "Grid search resolution for circular spells:\n"
-                "Performance: 8x8 grid (fastest)\n"
-                "Balanced: 10x10 grid\n"
-                "Quality: 12x12 grid\n"
-                "Maximum: 16x16 grid (slowest, best quality)"
-            );
-
-            // Separator
-            prediction_menu->add_separator();
-
-            // Info text
-            auto info = prediction_menu->add_text("info", "Danny Prediction v1.0 - Hybrid Physics + Behavior");
-            info->set_color(color(100, 200, 255, 255));
 
             g_sdk->log_console("[Danny.Prediction] Menu created successfully");
         }
         else
         {
-            g_sdk->log_console("[Danny.Prediction] WARNING: Failed to create menu!");
+            g_sdk->log_console("[Danny.Prediction] WARNING: Failed to create menu category!");
         }
     }
 
