@@ -775,13 +775,17 @@ bool CustomPredictionSDK::check_collision_simple(
         if (PredictionSettings::get().enable_debug_logging)
         {
             const char* type_name = "UNKNOWN";
+            int type_value = static_cast<int>(collision_type);
+
             if (collision_type == pred_sdk::collision_type::unit) type_name = "UNIT (minions)";
             else if (collision_type == pred_sdk::collision_type::hero) type_name = "HERO";
             else if (collision_type == pred_sdk::collision_type::turret) type_name = "TURRET";
             else if (collision_type == pred_sdk::collision_type::terrain) type_name = "TERRAIN";
+            else if (collision_type == pred_sdk::collision_type::yasuo_wall) type_name = "YASUO_WALL";
+            else if (collision_type == pred_sdk::collision_type::braum_wall) type_name = "BRAUM_WALL";
 
             char msg[256];
-            snprintf(msg, sizeof(msg), "[CollisionCheck] → Checking collision type: %s", type_name);
+            snprintf(msg, sizeof(msg), "[CollisionCheck] → Checking collision type: %s (value=%d)", type_name, type_value);
             g_sdk->log_console(msg);
         }
 
