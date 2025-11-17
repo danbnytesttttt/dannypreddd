@@ -88,7 +88,7 @@ namespace Prediction
             prediction_menu->add_slider_float(
                 "fog_prediction_time",
                 "Max Fog Prediction Time (seconds)",
-                0.25f, 2.0f, 0.25f, 0.75f,
+                0.25f, 2.0f, 0.25f, 0.5f,
                 [](float value) {
                     FogOfWarTracker::FogSettings::get().max_fog_prediction_time = value;
                 }

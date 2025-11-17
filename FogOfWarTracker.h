@@ -36,7 +36,7 @@ namespace FogOfWarTracker
     struct FogSettings
     {
         bool enable_fog_predictions = false;    // Allow predictions into fog
-        float max_fog_prediction_time = 0.75f;  // Max time to predict after losing vision (seconds)
+        float max_fog_prediction_time = 0.5f;   // Max time to predict after losing vision (seconds)
         float fog_confidence_multiplier = 0.5f; // Multiply hit chance by this for fog predictions
 
         static FogSettings& get()
