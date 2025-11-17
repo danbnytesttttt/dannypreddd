@@ -3,11 +3,10 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <algorithm>
 #include <chrono>
-#include <fstream>
 #include <sstream>
 #include <iomanip>
-#include <windows.h>
 
 /**
  * =============================================================================
@@ -15,7 +14,7 @@
  * =============================================================================
  *
  * Tracks prediction performance metrics for post-game analysis.
- * Logs to file: dannypred_telemetry_TIMESTAMP.txt
+ * Outputs to console log when finalized (manual save button or game end).
  *
  * =============================================================================
  */
@@ -94,7 +93,6 @@ namespace PredictionTelemetry
         static SessionStats stats_;
         static std::vector<PredictionEvent> events_;
         static bool enabled_;
-        static std::string log_file_path_;
 
         static auto get_timestamp()
         {
@@ -120,38 +118,12 @@ namespace PredictionTelemetry
             stats_.session_start_time = get_timestamp();
             stats_.champion_name = champion_name;
 
-            // Create log file path with full path
-            char current_dir[MAX_PATH];
-            GetCurrentDirectoryA(MAX_PATH, current_dir);
-            log_file_path_ = std::string(current_dir) + "\\dannypred_telemetry_" + stats_.session_start_time + ".txt";
-
-            // Write header
-            std::ofstream file(log_file_path_, std::ios::app);
-            if (file.is_open())
+            // Log initialization to console
+            if (g_sdk)
             {
-                file << "=============================================================================\n";
-                file << "Danny Prediction SDK - Telemetry Log\n";
-                file << "=============================================================================\n";
-                file << "Champion: " << champion_name << "\n";
-                file << "Session Start: " << stats_.session_start_time << "\n";
-                file << "=============================================================================\n\n";
-                file.close();
-
-                // Log file creation to console
-                if (g_sdk)
-                {
-                    std::string msg = "[Danny.Prediction] Telemetry file created: " + log_file_path_;
-                    g_sdk->log_console(msg.c_str());
-                }
-            }
-            else
-            {
-                // Failed to create file
-                if (g_sdk)
-                {
-                    std::string msg = "[Danny.Prediction] ERROR: Failed to create telemetry file: " + log_file_path_;
-                    g_sdk->log_console(msg.c_str());
-                }
+                char msg[256];
+                snprintf(msg, sizeof(msg), "[Danny.Prediction] Telemetry initialized for %s", champion_name.c_str());
+                g_sdk->log_console(msg);
             }
         }
 
@@ -243,106 +215,104 @@ namespace PredictionTelemetry
 
         static void write_report()
         {
-            if (!enabled_) return;
+            if (!enabled_ || !g_sdk) return;
 
-            std::ofstream file(log_file_path_, std::ios::app);
-            if (!file.is_open()) return;
-
-            file << "\n\n";
-            file << "=============================================================================\n";
-            file << "SESSION SUMMARY\n";
-            file << "=============================================================================\n\n";
+            // Output to console instead of file
+            g_sdk->log_console("=============================================================================");
+            g_sdk->log_console("TELEMETRY SESSION SUMMARY");
+            g_sdk->log_console("=============================================================================");
 
             // Session info
-            file << "Champion: " << stats_.champion_name << "\n";
-            file << "Duration: " << stats_.session_duration_seconds << " seconds\n";
-            file << "Total Predictions: " << stats_.total_predictions << "\n";
-            file << "Valid: " << stats_.valid_predictions << " | Invalid: " << stats_.invalid_predictions << "\n\n";
+            char buf[512];
+            snprintf(buf, sizeof(buf), "Champion: %s | Duration: %.0f seconds",
+                stats_.champion_name.c_str(), stats_.session_duration_seconds);
+            g_sdk->log_console(buf);
+
+            snprintf(buf, sizeof(buf), "Total Predictions: %d (Valid: %d | Invalid: %d)",
+                stats_.total_predictions, stats_.valid_predictions, stats_.invalid_predictions);
+            g_sdk->log_console(buf);
 
             // Performance metrics
-            file << "--- PERFORMANCE ---\n";
+            g_sdk->log_console("--- PERFORMANCE ---");
             float avg_time = stats_.total_computation_time_ms / std::max(1, stats_.valid_predictions);
-            file << "Avg Computation Time: " << avg_time << " ms\n";
-            file << "Min: " << stats_.min_computation_time_ms << " ms | Max: " << stats_.max_computation_time_ms << " ms\n";
-            file << "Total CPU Time: " << stats_.total_computation_time_ms << " ms\n\n";
+            snprintf(buf, sizeof(buf), "Avg: %.2fms | Min: %.2fms | Max: %.2fms | Total CPU: %.0fms",
+                avg_time, stats_.min_computation_time_ms, stats_.max_computation_time_ms, stats_.total_computation_time_ms);
+            g_sdk->log_console(buf);
 
             // Hitchance distribution
-            file << "--- HITCHANCE DISTRIBUTION ---\n";
-            file << " 0-20%: " << stats_.hitchance_0_20 << " (" << (stats_.hitchance_0_20 * 100.f / std::max(1, stats_.valid_predictions)) << "%)\n";
-            file << "20-40%: " << stats_.hitchance_20_40 << " (" << (stats_.hitchance_20_40 * 100.f / std::max(1, stats_.valid_predictions)) << "%)\n";
-            file << "40-60%: " << stats_.hitchance_40_60 << " (" << (stats_.hitchance_40_60 * 100.f / std::max(1, stats_.valid_predictions)) << "%)\n";
-            file << "60-80%: " << stats_.hitchance_60_80 << " (" << (stats_.hitchance_60_80 * 100.f / std::max(1, stats_.valid_predictions)) << "%)\n";
-            file << "80-100%: " << stats_.hitchance_80_100 << " (" << (stats_.hitchance_80_100 * 100.f / std::max(1, stats_.valid_predictions)) << "%)\n\n";
+            g_sdk->log_console("--- HITCHANCE DISTRIBUTION ---");
+            int total_valid = std::max(1, stats_.valid_predictions);
+            snprintf(buf, sizeof(buf), " 0-20%%: %d (%.1f%%) | 20-40%%: %d (%.1f%%) | 40-60%%: %d (%.1f%%)",
+                stats_.hitchance_0_20, stats_.hitchance_0_20 * 100.f / total_valid,
+                stats_.hitchance_20_40, stats_.hitchance_20_40 * 100.f / total_valid,
+                stats_.hitchance_40_60, stats_.hitchance_40_60 * 100.f / total_valid);
+            g_sdk->log_console(buf);
+            snprintf(buf, sizeof(buf), "60-80%%: %d (%.1f%%) | 80-100%%: %d (%.1f%%)",
+                stats_.hitchance_60_80, stats_.hitchance_60_80 * 100.f / total_valid,
+                stats_.hitchance_80_100, stats_.hitchance_80_100 * 100.f / total_valid);
+            g_sdk->log_console(buf);
 
             // Edge case stats
-            file << "--- EDGE CASES ---\n";
-            file << "Dash Predictions: " << stats_.dash_predictions << "\n";
-            file << "Stasis Predictions: " << stats_.stasis_predictions << "\n";
-            file << "Channel Predictions: " << stats_.channel_predictions << "\n";
-            file << "Stationary Targets: " << stats_.stationary_predictions << "\n";
-            file << "Animation Locked: " << stats_.animation_lock_predictions << "\n";
-            file << "Collision Detected: " << stats_.collision_detections << "\n\n";
+            g_sdk->log_console("--- EDGE CASES ---");
+            snprintf(buf, sizeof(buf), "Dash: %d | Stasis: %d | Channeling: %d | Stationary: %d",
+                stats_.dash_predictions, stats_.stasis_predictions,
+                stats_.channel_predictions, stats_.stationary_predictions);
+            g_sdk->log_console(buf);
+            snprintf(buf, sizeof(buf), "Animation Locked: %d | Collisions: %d",
+                stats_.animation_lock_predictions, stats_.collision_detections);
+            g_sdk->log_console(buf);
 
             // Pattern detection
-            file << "--- PATTERN DETECTION ---\n";
-            file << "Total Patterns: " << stats_.patterns_detected << "\n";
-            file << "Alternating: " << stats_.alternating_patterns << " | Repeating: " << stats_.repeating_patterns << "\n\n";
+            if (stats_.patterns_detected > 0)
+            {
+                snprintf(buf, sizeof(buf), "--- PATTERNS DETECTED: %d (Alt: %d | Rep: %d) ---",
+                    stats_.patterns_detected, stats_.alternating_patterns, stats_.repeating_patterns);
+                g_sdk->log_console(buf);
+            }
 
             // Per-spell-type stats
-            file << "--- PER SPELL TYPE ---\n";
-            for (const auto& pair : stats_.spell_type_counts)
+            if (!stats_.spell_type_counts.empty())
             {
-                float avg_hc = stats_.spell_type_avg_hitchance[pair.first];
-                file << pair.first << ": " << pair.second << " predictions, avg hitchance " << (avg_hc * 100.f) << "%\n";
-            }
-            file << "\n";
-
-            // Per-target stats
-            file << "--- PER TARGET ---\n";
-            for (const auto& pair : stats_.target_prediction_counts)
-            {
-                float avg_hc = stats_.target_avg_hitchance[pair.first];
-                file << pair.first << ": " << pair.second << " predictions, avg hitchance " << (avg_hc * 100.f) << "%\n";
-            }
-            file << "\n";
-
-            // Detailed event log (last 100 events)
-            file << "=============================================================================\n";
-            file << "DETAILED EVENT LOG (Last 100 Events)\n";
-            file << "=============================================================================\n\n";
-
-            size_t start_idx = events_.size() > 100 ? events_.size() - 100 : 0;
-            for (size_t i = start_idx; i < events_.size(); ++i)
-            {
-                const auto& e = events_[i];
-                file << "[" << std::fixed << std::setprecision(2) << e.timestamp << "s] ";
-                file << e.target_name << " | " << e.spell_type << " | ";
-                file << "HC:" << static_cast<int>(e.hit_chance * 100) << "% | ";
-                file << "Conf:" << static_cast<int>(e.confidence * 100) << "% | ";
-                file << "Dist:" << static_cast<int>(e.distance) << " | ";
-                file << e.edge_case;
-                if (e.was_dash) file << " [DASH]";
-                if (e.was_stationary) file << " [STILL]";
-                if (e.was_animation_locked) file << " [LOCKED]";
-                if (e.collision_detected) file << " [COLLISION]";
-                file << " | " << std::fixed << std::setprecision(3) << e.computation_time_ms << "ms\n";
+                g_sdk->log_console("--- PER SPELL TYPE ---");
+                for (const auto& pair : stats_.spell_type_counts)
+                {
+                    float avg_hc = stats_.spell_type_avg_hitchance[pair.first];
+                    snprintf(buf, sizeof(buf), "%s: %d predictions (avg HC: %.0f%%)",
+                        pair.first.c_str(), pair.second, avg_hc * 100.f);
+                    g_sdk->log_console(buf);
+                }
             }
 
-            file << "\n=============================================================================\n";
-            file << "END OF REPORT\n";
-            file << "=============================================================================\n";
-
-            file.close();
-
-            // Log file path to console
-            if (g_sdk)
+            // Per-target stats (top 10 by prediction count)
+            if (!stats_.target_prediction_counts.empty())
             {
-                char msg[512];
-                snprintf(msg, sizeof(msg),
-                    "[Danny.Prediction] Telemetry report saved: %d predictions logged to:\n%s",
-                    stats_.total_predictions, log_file_path_.c_str());
-                g_sdk->log_console(msg);
+                g_sdk->log_console("--- TOP TARGETS ---");
+
+                // Sort targets by prediction count
+                std::vector<std::pair<std::string, int>> sorted_targets;
+                for (const auto& pair : stats_.target_prediction_counts)
+                    sorted_targets.push_back(pair);
+
+                std::sort(sorted_targets.begin(), sorted_targets.end(),
+                    [](const auto& a, const auto& b) { return a.second > b.second; });
+
+                // Show top 10
+                int count = 0;
+                for (const auto& pair : sorted_targets)
+                {
+                    if (count++ >= 10) break;
+                    float avg_hc = stats_.target_avg_hitchance[pair.first];
+                    snprintf(buf, sizeof(buf), "%s: %d predictions (avg HC: %.0f%%)",
+                        pair.first.c_str(), pair.second, avg_hc * 100.f);
+                    g_sdk->log_console(buf);
+                }
             }
+
+            g_sdk->log_console("=============================================================================");
+            snprintf(buf, sizeof(buf), "TELEMETRY COMPLETE: %d total predictions logged",
+                stats_.total_predictions);
+            g_sdk->log_console(buf);
+            g_sdk->log_console("=============================================================================");
         }
     };
 
@@ -350,6 +320,5 @@ namespace PredictionTelemetry
     inline SessionStats TelemetryLogger::stats_;
     inline std::vector<PredictionEvent> TelemetryLogger::events_;
     inline bool TelemetryLogger::enabled_ = false;
-    inline std::string TelemetryLogger::log_file_path_;
 
 } // namespace PredictionTelemetry
