@@ -183,6 +183,19 @@ namespace PredictionVisuals
                 math::vector2 screen_start = g_sdk->renderer->world_to_screen(pred.source_position);
                 math::vector2 screen_end = g_sdk->renderer->world_to_screen(pred.cast_position);
 
+                // Debug: Log screen positions (once)
+                static bool logged_screen_pos = false;
+                if (!logged_screen_pos && g_sdk)
+                {
+                    char msg[512];
+                    snprintf(msg, sizeof(msg), "[PredVisuals] Screen coords: start=(%.0f,%.0f) end=(%.0f,%.0f) | 3D: src=(%.0f,%.0f,%.0f) dst=(%.0f,%.0f,%.0f)",
+                        screen_start.x, screen_start.y, screen_end.x, screen_end.y,
+                        pred.source_position.x, pred.source_position.y, pred.source_position.z,
+                        pred.cast_position.x, pred.cast_position.y, pred.cast_position.z);
+                    g_sdk->log_console(msg);
+                    logged_screen_pos = true;
+                }
+
                 // Check if both positions are valid (not zero/off-screen)
                 bool start_valid = (screen_start.x != 0.f || screen_start.y != 0.f);
                 bool end_valid = (screen_end.x != 0.f || screen_end.y != 0.f);
@@ -195,6 +208,26 @@ namespace PredictionVisuals
                         settings.line_thickness,
                         settings.line_color
                     );
+
+                    // Debug: Confirm draw call was made
+                    static bool logged_draw = false;
+                    if (!logged_draw && g_sdk)
+                    {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "[PredVisuals] add_line_2d() called! thickness=%.1f color=0x%08X",
+                            settings.line_thickness, settings.line_color);
+                        g_sdk->log_console(msg);
+                        logged_draw = true;
+                    }
+                }
+                else if (g_sdk)
+                {
+                    static bool logged_invalid = false;
+                    if (!logged_invalid)
+                    {
+                        g_sdk->log_console("[PredVisuals] Screen positions invalid - not drawing line");
+                        logged_invalid = true;
+                    }
                 }
             }
 
@@ -207,6 +240,18 @@ namespace PredictionVisuals
                     settings.circle_thickness,
                     settings.circle_color
                 );
+
+                // Debug: Confirm circle draw call was made
+                static bool logged_circle = false;
+                if (!logged_circle && g_sdk)
+                {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "[PredVisuals] add_circle_3d() called! pos=(%.0f,%.0f,%.0f) radius=%.0f color=0x%08X",
+                        pred.cast_position.x, pred.cast_position.y, pred.cast_position.z,
+                        pred.spell_radius, settings.circle_color);
+                    g_sdk->log_console(msg);
+                    logged_circle = true;
+                }
             }
         }
     }
