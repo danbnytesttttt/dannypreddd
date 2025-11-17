@@ -1632,6 +1632,21 @@ namespace HybridPred
 
         result.cast_position = optimal_cast_pos;
 
+        // DEBUG: Simple output - target vs cast position
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            math::vector3 target_pos = target->get_position();
+            math::vector3 offset = optimal_cast_pos - target_pos;
+            char debug[256];
+            snprintf(debug, sizeof(debug),
+                "[PRED] Target:(%.0f,%.0f) Cast:(%.0f,%.0f) Offset:(%.0f,%.0f) Vel:%.1f Time:%.2fs",
+                target_pos.x, target_pos.z,
+                optimal_cast_pos.x, optimal_cast_pos.z,
+                offset.x, offset.z,
+                target_velocity.magnitude(), arrival_time);
+            g_sdk->log_console(debug);
+        }
+
         // Step 6: Evaluate final hit chance at optimal position
         float physics_prob = PhysicsPredictor::compute_physics_hit_probability(
             optimal_cast_pos,
