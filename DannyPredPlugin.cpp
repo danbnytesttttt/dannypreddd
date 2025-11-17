@@ -41,8 +41,8 @@ void __fastcall on_update()
         last_check_time = current_time;
     }
 
-    // Draw prediction visuals
-    PredictionVisuals::draw_predictions(current_time);
+    // Draw continuous prediction visualization for current target
+    PredictionVisuals::draw_continuous_prediction(current_time);
 }
 
 namespace Prediction
@@ -143,7 +143,7 @@ namespace Prediction
             prediction_menu->add_separator();
 
             // === VISUALS SECTION ===
-            prediction_menu->add_label("Prediction Visuals");
+            prediction_menu->add_label("Continuous Prediction Visuals (Target Selector)");
 
             // Enable/Disable Visuals
             prediction_menu->add_checkbox(
@@ -155,65 +155,47 @@ namespace Prediction
                 }
             );
 
-            // Draw Line Toggle
+            // Draw Current Position
             prediction_menu->add_checkbox(
-                "draw_prediction_line",
-                "Draw Line to Target",
+                "draw_current_position",
+                "Show Current Position (Green)",
                 true,
                 [](bool value) {
-                    PredictionVisuals::VisualsSettings::get().draw_line = value;
+                    PredictionVisuals::VisualsSettings::get().draw_current_position = value;
                 }
             );
 
-            // Draw Circle Toggle
+            // Draw Predicted Position
             prediction_menu->add_checkbox(
-                "draw_prediction_circle",
-                "Draw Circle at Cast Position",
+                "draw_predicted_position",
+                "Show Predicted Position (Red)",
                 true,
                 [](bool value) {
-                    PredictionVisuals::VisualsSettings::get().draw_circle = value;
+                    PredictionVisuals::VisualsSettings::get().draw_predicted_position = value;
                 }
             );
 
-            // Line Color
-            prediction_menu->add_colorpicker(
-                "prediction_line_color",
-                "Line Color",
-                0xFF6060FF,  // Light red with alpha (ARGB)
-                [](uint32_t color) {
-                    PredictionVisuals::VisualsSettings::get().line_color = color;
+            // Draw Movement Line
+            prediction_menu->add_checkbox(
+                "draw_movement_line",
+                "Show Movement Line (Yellow)",
+                true,
+                [](bool value) {
+                    PredictionVisuals::VisualsSettings::get().draw_movement_line = value;
                 }
             );
 
-            // Circle Color
-            prediction_menu->add_colorpicker(
-                "prediction_circle_color",
-                "Circle Color",
-                0xFF6060FF,  // Light red with alpha (ARGB)
-                [](uint32_t color) {
-                    PredictionVisuals::VisualsSettings::get().circle_color = color;
-                }
-            );
-
-            // Line Thickness
+            // Prediction Time
             prediction_menu->add_slider_float(
-                "prediction_line_thickness",
-                "Line Thickness",
-                1.0f, 5.0f, 0.5f, 2.0f,
+                "prediction_time",
+                "Prediction Time (seconds)",
+                0.25f, 2.0f, 0.25f, 0.75f,
                 [](float value) {
-                    PredictionVisuals::VisualsSettings::get().line_thickness = value;
+                    PredictionVisuals::VisualsSettings::get().prediction_time = value;
                 }
             );
 
-            // Circle Thickness
-            prediction_menu->add_slider_float(
-                "prediction_circle_thickness",
-                "Circle Thickness",
-                1.0f, 5.0f, 0.5f, 2.0f,
-                [](float value) {
-                    PredictionVisuals::VisualsSettings::get().circle_thickness = value;
-                }
-            );
+            prediction_menu->add_label("Green=Current | Red=Predicted | Yellow=Movement");
 
             prediction_menu->add_separator();
 
