@@ -135,12 +135,21 @@ namespace PredictionVisuals
         // Simple linear prediction: position + velocity * time
         math::vector3 predicted_pos = current_pos + velocity * settings.prediction_time;
 
-        // Log first successful draw
+        // Log first successful draw and velocity info
         if (!has_drawn_successfully)
         {
-            char msg[256];
-            snprintf(msg, sizeof(msg), "[PredVisuals] Drawing for target: %s at (%.0f, %.0f, %.0f)",
-                target->get_char_name().c_str(), current_pos.x, current_pos.y, current_pos.z);
+            char msg[512];
+            snprintf(msg, sizeof(msg),
+                "[PredVisuals] Drawing for target: %s\n"
+                "  Current: (%.0f, %.0f, %.0f)\n"
+                "  Velocity: (%.1f, %.1f, %.1f) magnitude=%.1f\n"
+                "  Predicted: (%.0f, %.0f, %.0f)\n"
+                "  Pred Time: %.2fs",
+                target->get_char_name().c_str(),
+                current_pos.x, current_pos.y, current_pos.z,
+                velocity.x, velocity.y, velocity.z, velocity.length(),
+                predicted_pos.x, predicted_pos.y, predicted_pos.z,
+                settings.prediction_time);
             g_sdk->log_console(msg);
             has_drawn_successfully = true;
         }
