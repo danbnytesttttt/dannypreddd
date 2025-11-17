@@ -19,6 +19,10 @@ menu_category* prediction_menu = nullptr;
 // Update callback function
 void __fastcall on_update()
 {
+    // Safety: Validate SDK is initialized
+    if (!g_sdk || !g_sdk->clock_facade)
+        return;
+
     CustomPredictionSDK::update_trackers();
 
     // FORCE-SET the SDK pointer every frame (in case platform overwrites it)
@@ -44,6 +48,10 @@ void __fastcall on_update()
 
 void __fastcall on_draw()
 {
+    // Safety: Validate SDK is initialized
+    if (!g_sdk || !g_sdk->clock_facade)
+        return;
+
     // Draw continuous prediction visualization for current target
     float current_time = g_sdk->clock_facade->get_game_time();
     PredictionVisuals::draw_continuous_prediction(current_time);

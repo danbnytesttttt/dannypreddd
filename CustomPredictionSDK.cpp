@@ -27,6 +27,12 @@ pred_sdk::pred_data CustomPredictionSDK::targetted(pred_sdk::spell_data spell_da
     }
 
     // Use target selector to find best target
+    if (!sdk::target_selector)
+    {
+        result.hitchance = pred_sdk::hitchance::any;
+        return result;
+    }
+
     auto* target = sdk::target_selector->get_hero_target();
 
     if (!target || !target->is_valid())
@@ -51,6 +57,16 @@ pred_sdk::pred_data CustomPredictionSDK::targetted(pred_sdk::spell_data spell_da
 
 pred_sdk::pred_data CustomPredictionSDK::predict(pred_sdk::spell_data spell_data)
 {
+    pred_sdk::pred_data result{};
+
+    // Safety: Validate SDK is initialized
+    if (!g_sdk || !g_sdk->object_manager)
+    {
+        result.hitchance = pred_sdk::hitchance::any;
+        result.is_valid = false;
+        return result;
+    }
+
     if (PredictionSettings::get().enable_debug_logging)
     {
         char debug_msg[512];
@@ -96,6 +112,16 @@ pred_sdk::pred_data CustomPredictionSDK::predict(pred_sdk::spell_data spell_data
 
 pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spell_data spell_data)
 {
+    pred_sdk::pred_data result{};
+
+    // Safety: Validate SDK is initialized
+    if (!g_sdk || !g_sdk->object_manager || !g_sdk->clock_facade)
+    {
+        result.hitchance = pred_sdk::hitchance::any;
+        result.is_valid = false;
+        return result;
+    }
+
     // FIXED: Use safe debug logging
     if (PredictionSettings::get().enable_debug_logging)
     {
@@ -104,8 +130,6 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
             (void*)obj, (void*)spell_data.source);
         g_sdk->log_console(debug_msg);
     }
-
-    pred_sdk::pred_data result{};
 
     // Validation: obj must exist and be valid
     if (!obj || !obj->is_valid())
@@ -738,7 +762,11 @@ float CustomPredictionSDK::calculate_target_score(
 
     // Prioritize closer targets
     float distance = target->get_position().distance(spell_data.source->get_position());
-    float distance_factor = 1.f - std::min(distance / spell_data.range, 1.f);
+    float distance_factor = 0.f;
+    if (spell_data.range > 0.f)
+    {
+        distance_factor = 1.f - std::min(distance / spell_data.range, 1.f);
+    }
     score *= (0.7f + distance_factor * 0.3f);
 
     return score;

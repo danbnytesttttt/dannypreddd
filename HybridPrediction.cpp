@@ -2752,6 +2752,10 @@ namespace HybridPred
 
     void PredictionManager::update()
     {
+        // Safety: Validate SDK is initialized
+        if (!g_sdk || !g_sdk->clock_facade || !g_sdk->object_manager)
+            return;
+
         float current_time = g_sdk->clock_facade->get_game_time();
 
         // Update all existing trackers
