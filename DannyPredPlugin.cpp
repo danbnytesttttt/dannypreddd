@@ -253,7 +253,7 @@ namespace Prediction
     void LoadPrediction()
     {
         // Version check - this forces recompile and helps verify new code is loaded
-        g_sdk->log_console("=== DANNY PREDICTION v1.1 - BUILD 2024-12-20 - VISUALS DEBUG ===");
+        g_sdk->log_console("=== DANNY PREDICTION v1.2 - INCREASED VISUAL AGE TO 2.0s ===");
 
         // Register update callback for tracker updates
         g_sdk->event_manager->register_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));

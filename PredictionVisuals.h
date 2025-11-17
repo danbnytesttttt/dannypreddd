@@ -46,7 +46,7 @@ namespace PredictionVisuals
         bool enabled = true;
         bool draw_line = true;
         bool draw_circle = true;
-        float max_age_seconds = 0.15f;  // Only draw predictions newer than this
+        float max_age_seconds = 2.0f;  // Only draw predictions newer than this (increased from 0.15s)
         uint32_t line_color = 0xFF6060FF;     // Light red with alpha (ARGB format)
         uint32_t circle_color = 0xFF6060FF;   // Light red with alpha
         float line_thickness = 2.0f;
@@ -174,7 +174,27 @@ namespace PredictionVisuals
             // Check if prediction is too old
             float age = current_time - pred.timestamp;
             if (age > settings.max_age_seconds)
+            {
+                static bool logged_age_expire = false;
+                if (!logged_age_expire && g_sdk)
+                {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "[PredVisuals] Prediction slot %d expired (age=%.3fs, max=%.3fs)",
+                        i, age, settings.max_age_seconds);
+                    g_sdk->log_console(msg);
+                    logged_age_expire = true;
+                }
                 continue;
+            }
+
+            // Debug: Log that we're about to draw
+            static int draw_attempt_count = 0;
+            if (draw_attempt_count++ < 3 && g_sdk)
+            {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "[PredVisuals] Drawing slot %d (age=%.3fs)", i, age);
+                g_sdk->log_console(msg);
+            }
 
             // Draw line from source to predicted position
             if (settings.draw_line)
