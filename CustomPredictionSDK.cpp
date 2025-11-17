@@ -359,22 +359,8 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         PredictionTelemetry::TelemetryLogger::log_prediction(event);
     }
 
-    // Store prediction for visual drawing
-    if (result.is_valid && PredictionVisuals::VisualsSettings::get().enabled)
-    {
-        // Use reachable region center as predicted position (where target will be)
-        math::vector3 predicted_target_pos = hybrid_result.reachable_region.center;
-
-        PredictionVisuals::store_prediction(
-            spell_data.source->get_position(),
-            predicted_target_pos,
-            result.cast_position,
-            spell_data.radius,
-            spell_data.spell_slot,
-            obj->get_char_name(),
-            g_sdk->clock_facade->get_game_time()
-        );
-    }
+    // Note: Visual drawing is now handled by continuous prediction system
+    // in draw_continuous_prediction() - no need to store prediction data here
 
     return result;
 }
