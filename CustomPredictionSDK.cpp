@@ -245,8 +245,7 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         {
             // CRITICAL: For non-piercing skillshots, ANY collision invalidates the prediction
             // Don't just reduce hitchance - completely block the cast
-            PRED_DEBUG_LOG("[Danny.Prediction] COLLISION DETECTED - Minion blocking path!");
-            PRED_DEBUG_LOG("[Danny.Prediction] Invalidating prediction - cannot hit through minions");
+            PRED_DEBUG_LOG("[Danny.Prediction] Invalidating prediction - enemy unit blocking path");
             result.is_valid = false;
             result.hitchance = pred_sdk::hitchance::any;
             return result;
@@ -693,10 +692,17 @@ bool CustomPredictionSDK::check_collision_simple(
                 if (!is_collision_object(minion, spell_data))
                     continue;
 
-                // FIXED: Check collision with BOTH ally and enemy minions
-                // In League of Legends, both ally and enemy minions block non-piercing skillshots
-                // (Blitz Q, Thresh Q, Lux Q, Morgana Q, Ezreal Q, etc.)
-                // Piercing behavior should be handled by NOT adding collision_type::unit to forbidden_collisions
+                // CRITICAL FIX: Only ENEMY minions block skillshots
+                // Ally minions do NOT block your own skillshots in League of Legends
+                if (minion->get_team_id() == spell_data.source->get_team_id())
+                    continue;
+
+                // Skip wards - they never block skillshots
+                std::string name = minion->get_char_name();
+                if (name.find("Ward") != std::string::npos ||
+                    name.find("Trinket") != std::string::npos ||
+                    name.find("YellowTrinket") != std::string::npos)
+                    continue;
 
                 // Simple point-to-line distance check
                 math::vector3 minion_pos = minion->get_position();
@@ -713,7 +719,17 @@ bool CustomPredictionSDK::check_collision_simple(
                 float distance = minion_pos.distance(closest_point);
 
                 if (distance <= spell_data.radius + minion->get_bounding_radius())
+                {
+                    if (PredictionSettings::get().enable_debug_logging)
+                    {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                            "[Danny.Prediction] COLLISION DETECTED - Enemy minion (%s) blocking path!",
+                            minion->get_char_name().c_str());
+                        g_sdk->log_console(msg);
+                    }
                     return true;
+                }
             }
         }
         else if (collision_type == pred_sdk::collision_type::hero)
@@ -727,8 +743,10 @@ bool CustomPredictionSDK::check_collision_simple(
                 if (!is_collision_object(hero, spell_data))
                     continue;
 
-                // FIXED: Check collision with BOTH ally and enemy heroes
-                // Both block non-piercing skillshots in League of Legends
+                // CRITICAL FIX: Only ENEMY heroes block skillshots
+                // Ally heroes do NOT block your own skillshots in League of Legends
+                if (hero->get_team_id() == spell_data.source->get_team_id())
+                    continue;
 
                 math::vector3 hero_pos = hero->get_position();
                 math::vector3 line_dir = (end - start).normalized();
@@ -744,7 +762,17 @@ bool CustomPredictionSDK::check_collision_simple(
                 float distance = hero_pos.distance(closest_point);
 
                 if (distance <= spell_data.radius + hero->get_bounding_radius())
+                {
+                    if (PredictionSettings::get().enable_debug_logging)
+                    {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                            "[Danny.Prediction] COLLISION DETECTED - Enemy hero (%s) blocking path!",
+                            hero->get_char_name().c_str());
+                        g_sdk->log_console(msg);
+                    }
                     return true;
+                }
             }
         }
         // Terrain collision skipped - would need navmesh API
