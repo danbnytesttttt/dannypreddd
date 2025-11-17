@@ -25,17 +25,13 @@ void __fastcall on_update()
         sdk::prediction = &customPrediction;
     }
 
-    // Verify plugin is active and prediction SDK is accessible
+    // Verify plugin is active and prediction SDK is accessible (only log if there's a problem)
     static float last_check_time = 0.f;
     float current_time = g_sdk->clock_facade->get_game_time();
     if (current_time - last_check_time >= 10.0f)
     {
         // Check if sdk::prediction points to our implementation
-        if (sdk::prediction == &customPrediction)
-        {
-            g_sdk->log_console("[Danny.Prediction] ACTIVE - SDK pointer confirmed");
-        }
-        else
+        if (sdk::prediction != &customPrediction)
         {
             g_sdk->log_console("[Danny.Prediction] WARNING: SDK pointer mismatch! Forcing reset...");
             sdk::prediction = &customPrediction;
@@ -192,14 +188,14 @@ extern "C" __declspec(dllexport) bool PluginLoad(core_sdk* sdk, void** custom_sd
 
     // CRITICAL: Set the global prediction pointer to our implementation
     char ptr_msg[256];
-    sprintf_s(ptr_msg, "[Danny.Prediction] Before: sdk::prediction = 0x%p, &customPrediction = 0x%p",
+    sprintf_s(ptr_msg, sizeof(ptr_msg), "[Danny.Prediction] Before: sdk::prediction = 0x%p, &customPrediction = 0x%p",
         sdk::prediction, &customPrediction);
     g_sdk->log_console(ptr_msg);
 
     sdk::prediction = &customPrediction;
 
     // Verify it was set correctly
-    sprintf_s(ptr_msg, "[Danny.Prediction] After:  sdk::prediction = 0x%p, &customPrediction = 0x%p",
+    sprintf_s(ptr_msg, sizeof(ptr_msg), "[Danny.Prediction] After:  sdk::prediction = 0x%p, &customPrediction = 0x%p",
         sdk::prediction, &customPrediction);
     g_sdk->log_console(ptr_msg);
 
@@ -214,7 +210,7 @@ extern "C" __declspec(dllexport) bool PluginLoad(core_sdk* sdk, void** custom_sd
 
     // Confirm successful load
     char load_msg[256];
-    sprintf_s(load_msg, "[Danny.Prediction] Successfully loaded for champion: %s", MyHeroNamePredCore.c_str());
+    sprintf_s(load_msg, sizeof(load_msg), "[Danny.Prediction] Successfully loaded for champion: %s", MyHeroNamePredCore.c_str());
     g_sdk->log_console(load_msg);
     g_sdk->log_console("[Danny.Prediction] SDK pointer registered - ready for predictions!");
     g_sdk->log_console("==============================================");

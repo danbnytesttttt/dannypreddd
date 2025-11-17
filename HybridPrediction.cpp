@@ -124,6 +124,10 @@ namespace HybridPred
         if (!target_ || !target_->is_valid())
             return;
 
+        // SAFETY: Guard against null SDK (shouldn't happen, but prevents crash)
+        if (!g_sdk || !g_sdk->clock_facade)
+            return;
+
         float current_time = g_sdk->clock_facade->get_game_time();
 
         // Sample at fixed rate
@@ -1516,7 +1520,7 @@ namespace HybridPred
             {
                 float duration = tracker.get_stationary_duration(g_sdk->clock_facade->get_game_time());
                 char boost_msg[128];
-                sprintf_s(boost_msg, "\n[STATIONARY TARGET: %.1fs standing still - minimum hitchance %.0f%%]",
+                sprintf_s(boost_msg, sizeof(boost_msg), "\n[STATIONARY TARGET: %.1fs standing still - minimum hitchance %.0f%%]",
                     duration, stationary_boost * 100.f);
                 spell_result.reasoning += boost_msg;
             }
@@ -1715,7 +1719,9 @@ namespace HybridPred
         confidence *= std::exp(-distance * CONFIDENCE_DISTANCE_DECAY);
 
         // Latency factor (ping in seconds)
-        float ping = static_cast<float>(g_sdk->net_client->get_ping()) * 0.001f;
+        float ping = 0.05f;  // Default 50ms fallback
+        if (g_sdk && g_sdk->net_client)
+            ping = static_cast<float>(g_sdk->net_client->get_ping()) * 0.001f;
         confidence *= std::exp(-ping * CONFIDENCE_LATENCY_FACTOR);
 
         // Spell-specific adjustments
