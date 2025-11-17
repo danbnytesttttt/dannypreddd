@@ -40,8 +40,12 @@ void __fastcall on_update()
         }
         last_check_time = current_time;
     }
+}
 
+void __fastcall on_draw()
+{
     // Draw continuous prediction visualization for current target
+    float current_time = g_sdk->clock_facade->get_game_time();
     PredictionVisuals::draw_continuous_prediction(current_time);
 }
 
@@ -235,10 +239,13 @@ namespace Prediction
     void LoadPrediction()
     {
         // Version check - this forces recompile and helps verify new code is loaded
-        g_sdk->log_console("=== DANNY PREDICTION v1.2 - INCREASED VISUAL AGE TO 2.0s ===");
+        g_sdk->log_console("=== DANNY PREDICTION v1.3 - FIXED DRAWING EVENT ===");
 
         // Register update callback for tracker updates
         g_sdk->event_manager->register_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
+
+        // Register draw callback for visualization rendering
+        g_sdk->event_manager->register_callback(event_manager::event::draw_world, reinterpret_cast<void*>(on_draw));
 
         // Create menu
         LoadMenu();
@@ -269,8 +276,9 @@ namespace Prediction
             g_sdk->log_console("[Danny.Prediction] Telemetry was disabled - no report generated");
         }
 
-        // Unregister callback
+        // Unregister callbacks
         g_sdk->event_manager->unregister_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
+        g_sdk->event_manager->unregister_callback(event_manager::event::draw_world, reinterpret_cast<void*>(on_draw));
 
         // Clean up prediction visuals
         PredictionVisuals::clear();
