@@ -1961,6 +1961,18 @@ namespace HybridPred
         math::vector3 target_velocity = tracker.get_current_velocity();
         float move_speed = target->get_move_speed();
 
+        // DEBUG: Log velocity to diagnose why stationary targets have large reachable radius
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            float vel_mag = target_velocity.magnitude();
+            float distance = target_pos.distance(source_pos);
+            char vel_msg[512];
+            snprintf(vel_msg, sizeof(vel_msg),
+                "[LINEAR] Velocity=(%.1f,%.1f,%.1f) Mag=%.1f | MoveSpeed=%.1f | Distance=%.0f",
+                target_velocity.x, target_velocity.y, target_velocity.z, vel_mag, move_speed, distance);
+            g_sdk->log_console(vel_msg);
+        }
+
         // Step 1: Compute arrival time using ITERATIVE solver for moving targets
         // CRITICAL FIX: Must account for target movement during projectile travel
         float arrival_time = PhysicsPredictor::compute_arrival_time_moving_target(
@@ -1981,6 +1993,17 @@ namespace HybridPred
         );
 
         result.reachable_region = reachable_region;
+
+        // DEBUG: Show reachable region details
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            math::vector3 center_offset = reachable_region.center - target_pos;
+            char region_msg[512];
+            snprintf(region_msg, sizeof(region_msg),
+                "[LINEAR] ArrivalTime=%.3fs | ReachRadius=%.1f | CenterOffset=%.1f units from target",
+                arrival_time, reachable_region.max_radius, center_offset.magnitude());
+            g_sdk->log_console(region_msg);
+        }
 
         // Step 3: Build behavior PDF
         BehaviorPDF behavior_pdf = BehaviorPredictor::build_pdf_from_history(tracker, arrival_time, move_speed);
