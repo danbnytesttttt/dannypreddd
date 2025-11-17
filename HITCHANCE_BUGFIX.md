@@ -56,5 +56,27 @@ After this fix:
 - When Q is set to "very high" (85), it will ONLY cast when prediction hitchance >= 85
 - No more low-confidence casts (15%, 28%, etc.)
 
-## Location
-This fix needs to be applied in your champion script framework's `spell.cpp` file, NOT in the dannypreddd prediction SDK repository.
+## Locations
+
+### 1. Champion Script Framework (spell.cpp) - REQUIRED
+Apply the fix shown above to your `spell::cast_spell_on_hitchance()` function.
+
+### 2. Prediction SDK (CustomPredictionSDK.cpp:280) - DEFENSE-IN-DEPTH
+Additionally, the prediction SDK now **enforces hitchance thresholds at the SDK level** as a safety net:
+
+```cpp
+bool should_cast = (result.hitchance >= spell_data.expected_hitchance);
+
+// DEFENSIVE PROGRAMMING: Enforce hitchance threshold at SDK level
+if (!should_cast)
+{
+    result.is_valid = false;
+    result.hitchance = pred_sdk::hitchance::any;
+    return result;  // Reject predictions below threshold
+}
+```
+
+This means:
+- Even if a buggy spell wrapper only checks `pred.is_valid`, it will work correctly
+- The SDK enforces "if you ask for 70% hitchance, you only get valid results >= 70%"
+- Defense-in-depth: multiple layers protect against low-confidence casts

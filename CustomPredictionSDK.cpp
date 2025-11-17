@@ -277,6 +277,23 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
 
     bool should_cast = (result.hitchance >= spell_data.expected_hitchance);
 
+    // DEFENSIVE PROGRAMMING: Enforce hitchance threshold at SDK level
+    // This protects against buggy champion scripts that don't check hitchance properly
+    if (!should_cast)
+    {
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            char reject_msg[256];
+            snprintf(reject_msg, sizeof(reject_msg),
+                "[REJECT] Hitchance %s below threshold %s - invalidating prediction",
+                hc_name, thresh_name);
+            g_sdk->log_console(reject_msg);
+        }
+        result.is_valid = false;
+        result.hitchance = pred_sdk::hitchance::any;
+        return result;
+    }
+
     // CONCISE DEBUG: Only log when actually casting
     if (should_cast && PredictionSettings::get().enable_debug_logging)
     {
