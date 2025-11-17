@@ -145,6 +145,30 @@ namespace PredictionVisuals
             has_drawn_successfully = true;
         }
 
+        // TEST: Draw a circle at player position to verify renderer works
+        static bool test_logged = false;
+        if (g_sdk->local_player)
+        {
+            math::vector3 player_pos = g_sdk->local_player->get_position();
+
+            // Draw HUGE bright white circle at player feet
+            g_sdk->renderer->add_circle_3d(
+                player_pos,
+                200.0f,     // Large radius
+                5.0f,       // Thick line
+                0xFFFFFFFF  // Bright white
+            );
+
+            if (!test_logged)
+            {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "[PredVisuals] TEST: Drawing white circle at player position (%.0f, %.0f, %.0f)",
+                    player_pos.x, player_pos.y, player_pos.z);
+                g_sdk->log_console(msg);
+                test_logged = true;
+            }
+        }
+
         // Draw current position (green circle)
         if (settings.draw_current_position)
         {
