@@ -47,22 +47,47 @@ namespace PredictionVisuals
      */
     inline void draw_continuous_prediction(float current_time)
     {
-        if (!VisualsSettings::get().enabled || !g_sdk || !g_sdk->renderer)
+        // Safety checks
+        if (!VisualsSettings::get().enabled)
+            return;
+
+        if (!g_sdk || !g_sdk->renderer)
             return;
 
         if (!sdk::target_selector)
             return;
 
-        // Get current target from target selector
+        // Get current target from target selector with additional safety
         auto* target = sdk::target_selector->get_hero_target();
-        if (!target || !target->is_valid() || !target->is_visible())
+        if (!target)
+            return;
+
+        // CRITICAL: Additional validity checks to prevent crashes
+        if (!target->is_valid())
+            return;
+
+        if (target->is_dead())
+            return;
+
+        if (!target->is_visible())
             return;
 
         const auto& settings = VisualsSettings::get();
 
-        // Get current position and velocity
-        math::vector3 current_pos = target->get_position();
-        math::vector3 velocity = target->get_velocity();
+        // Get current position and velocity with exception handling
+        math::vector3 current_pos;
+        math::vector3 velocity;
+
+        try
+        {
+            current_pos = target->get_position();
+            velocity = target->get_velocity();
+        }
+        catch (...)
+        {
+            // Target became invalid mid-frame
+            return;
+        }
 
         // Simple linear prediction: position + velocity * time
         math::vector3 predicted_pos = current_pos + velocity * settings.prediction_time;
@@ -70,43 +95,55 @@ namespace PredictionVisuals
         // Draw current position (green circle)
         if (settings.draw_current_position)
         {
-            g_sdk->renderer->add_circle_3d(
-                current_pos,
-                settings.current_circle_radius,
-                settings.circle_thickness,
-                settings.current_pos_color
-            );
+            try
+            {
+                g_sdk->renderer->add_circle_3d(
+                    current_pos,
+                    settings.current_circle_radius,
+                    settings.circle_thickness,
+                    settings.current_pos_color
+                );
+            }
+            catch (...) { /* Ignore render errors */ }
         }
 
         // Draw predicted position (red circle)
         if (settings.draw_predicted_position)
         {
-            g_sdk->renderer->add_circle_3d(
-                predicted_pos,
-                settings.predicted_circle_radius,
-                settings.circle_thickness,
-                settings.predicted_pos_color
-            );
+            try
+            {
+                g_sdk->renderer->add_circle_3d(
+                    predicted_pos,
+                    settings.predicted_circle_radius,
+                    settings.circle_thickness,
+                    settings.predicted_pos_color
+                );
+            }
+            catch (...) { /* Ignore render errors */ }
         }
 
         // Draw movement line (yellow line from current to predicted)
         if (settings.draw_movement_line)
         {
-            math::vector2 screen_current = g_sdk->renderer->world_to_screen(current_pos);
-            math::vector2 screen_predicted = g_sdk->renderer->world_to_screen(predicted_pos);
-
-            bool current_valid = (screen_current.x != 0.f || screen_current.y != 0.f);
-            bool predicted_valid = (screen_predicted.x != 0.f || screen_predicted.y != 0.f);
-
-            if (current_valid && predicted_valid)
+            try
             {
-                g_sdk->renderer->add_line_2d(
-                    screen_current,
-                    screen_predicted,
-                    settings.line_thickness,
-                    settings.movement_line_color
-                );
+                math::vector2 screen_current = g_sdk->renderer->world_to_screen(current_pos);
+                math::vector2 screen_predicted = g_sdk->renderer->world_to_screen(predicted_pos);
+
+                bool current_valid = (screen_current.x != 0.f || screen_current.y != 0.f);
+                bool predicted_valid = (screen_predicted.x != 0.f || screen_predicted.y != 0.f);
+
+                if (current_valid && predicted_valid)
+                {
+                    g_sdk->renderer->add_line_2d(
+                        screen_current,
+                        screen_predicted,
+                        settings.line_thickness,
+                        settings.movement_line_color
+                    );
+                }
             }
+            catch (...) { /* Ignore render errors */ }
         }
     }
 

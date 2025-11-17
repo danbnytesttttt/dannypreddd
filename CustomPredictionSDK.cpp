@@ -298,19 +298,40 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     // Check collision if required
     if (!spell_data.forbidden_collisions.empty())
     {
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "[Danny.Prediction] Checking collision - %zu collision types configured",
+                spell_data.forbidden_collisions.size());
+            g_sdk->log_console(msg);
+        }
+
         pred_sdk::collision_ret collision = collides(result.cast_position, spell_data, obj);
         if (collision.collided)
         {
             // CRITICAL: For non-piercing skillshots, ANY collision invalidates the prediction
             // Don't just reduce hitchance - completely block the cast
-            PRED_DEBUG_LOG("[Danny.Prediction] Invalidating prediction - enemy unit blocking path");
+            if (PredictionSettings::get().enable_debug_logging)
+            {
+                g_sdk->log_console("[Danny.Prediction] ⚠️ COLLISION DETECTED - Invalidating prediction!");
+            }
             result.is_valid = false;
             result.hitchance = pred_sdk::hitchance::any;
             return result;
         }
         else
         {
-            PRED_DEBUG_LOG("[Danny.Prediction] No collision detected - path is clear");
+            if (PredictionSettings::get().enable_debug_logging)
+            {
+                g_sdk->log_console("[Danny.Prediction] ✓ No collision - path is clear");
+            }
+        }
+    }
+    else
+    {
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            g_sdk->log_console("[Danny.Prediction] No collision types configured - skipping collision check");
         }
     }
 
@@ -739,12 +760,29 @@ bool CustomPredictionSDK::check_collision_simple(
     const pred_sdk::spell_data& spell_data,
     const game_object* target_obj)
 {
+    if (PredictionSettings::get().enable_debug_logging)
+    {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "[CollisionCheck] Checking path from (%.0f,%.0f) to (%.0f,%.0f)",
+            start.x, start.z, end.x, end.z);
+        g_sdk->log_console(msg);
+    }
+
     // Check each collision type
     for (auto collision_type : spell_data.forbidden_collisions)
     {
         if (collision_type == pred_sdk::collision_type::unit)
         {
             auto minions = g_sdk->object_manager->get_minions();
+
+            if (PredictionSettings::get().enable_debug_logging)
+            {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "[CollisionCheck] Checking %zu minions for collision",
+                    minions.size());
+                g_sdk->log_console(msg);
+            }
+
             for (auto* minion : minions)
             {
                 if (!minion || minion == target_obj)
@@ -796,6 +834,15 @@ bool CustomPredictionSDK::check_collision_simple(
         else if (collision_type == pred_sdk::collision_type::hero)
         {
             auto heroes = g_sdk->object_manager->get_heroes();
+
+            if (PredictionSettings::get().enable_debug_logging)
+            {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "[CollisionCheck] Checking %zu heroes for collision",
+                    heroes.size());
+                g_sdk->log_console(msg);
+            }
+
             for (auto* hero : heroes)
             {
                 if (!hero || hero == target_obj || hero == spell_data.source)
