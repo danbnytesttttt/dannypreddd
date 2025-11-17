@@ -189,7 +189,19 @@ namespace PredictionTelemetry
 
         static void finalize(float session_duration_seconds)
         {
-            if (!enabled_) return;
+            if (!enabled_)
+            {
+                if (g_sdk) g_sdk->log_console("[Telemetry] finalize() called but telemetry not enabled");
+                return;
+            }
+
+            if (g_sdk)
+            {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "[Telemetry] finalize() called - %d total predictions logged",
+                    stats_.total_predictions);
+                g_sdk->log_console(msg);
+            }
 
             stats_.session_duration_seconds = session_duration_seconds;
 
@@ -215,7 +227,18 @@ namespace PredictionTelemetry
 
         static void write_report()
         {
-            if (!enabled_ || !g_sdk) return;
+            if (!enabled_)
+            {
+                if (g_sdk) g_sdk->log_console("[Telemetry] Not enabled, skipping report");
+                return;
+            }
+
+            if (!g_sdk)
+            {
+                return;
+            }
+
+            g_sdk->log_console("[Telemetry] write_report() called - generating summary...");
 
             // Output to console instead of file
             g_sdk->log_console("=============================================================================");

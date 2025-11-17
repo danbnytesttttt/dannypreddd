@@ -137,18 +137,25 @@ namespace Prediction
         if (PredictionSettings::get().enable_telemetry)
         {
             PredictionTelemetry::TelemetryLogger::initialize(MyHeroNamePredCore, true);
-            g_sdk->log_console("[Danny.Prediction] Telemetry enabled - logging to file");
+            g_sdk->log_console("[Danny.Prediction] Telemetry enabled - will output to console at game end");
         }
     }
 
     void UnloadPrediction()
     {
+        g_sdk->log_console("[Danny.Prediction] UnloadPrediction() called - game ending");
+
         // Finalize telemetry
         if (PredictionSettings::get().enable_telemetry)
         {
+            g_sdk->log_console("[Danny.Prediction] Finalizing telemetry...");
             float session_duration = g_sdk->clock_facade->get_game_time() - g_session_start_time;
             PredictionTelemetry::TelemetryLogger::finalize(session_duration);
-            g_sdk->log_console("[Danny.Prediction] Telemetry finalized - check log file");
+            g_sdk->log_console("[Danny.Prediction] Telemetry finalized - check console output above");
+        }
+        else
+        {
+            g_sdk->log_console("[Danny.Prediction] Telemetry was disabled - no report generated");
         }
 
         // Unregister callback
