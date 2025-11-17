@@ -1587,6 +1587,12 @@ namespace HybridPred
     {
         HybridPredictionResult result;
 
+        // CRITICAL: Cache source position to prevent inconsistency during flash/dash
+        // Flash/dash causes instant position changes - using cached position ensures
+        // all calculations use the SAME source position throughout prediction
+        math::vector3 source_pos = source->get_position();
+        math::vector3 target_pos = target->get_position();
+
         // Get target velocity BEFORE arrival time calculation
         math::vector3 target_velocity = tracker.get_current_velocity();
         float move_speed = target->get_move_speed();
@@ -1594,8 +1600,8 @@ namespace HybridPred
         // Step 1: Compute arrival time using ITERATIVE solver for moving targets
         // CRITICAL FIX: Must account for target movement during projectile travel
         float arrival_time = PhysicsPredictor::compute_arrival_time_moving_target(
-            source->get_position(),
-            target->get_position(),
+            source_pos,
+            target_pos,
             target_velocity,
             spell.projectile_speed,
             spell.delay
@@ -1604,7 +1610,7 @@ namespace HybridPred
         // Step 2: Build reachable region (physics)
 
         ReachableRegion reachable_region = PhysicsPredictor::compute_reachable_region(
-            target->get_position(),
+            target_pos,
             target_velocity,
             arrival_time,
             move_speed
@@ -1626,7 +1632,7 @@ namespace HybridPred
         math::vector3 optimal_cast_pos = find_optimal_cast_position(
             reachable_region,
             behavior_pdf,
-            source->get_position(),
+            source_pos,
             spell.radius,
             confidence
         );
@@ -1945,6 +1951,12 @@ namespace HybridPred
             return result;
         }
 
+        // CRITICAL: Cache source/target positions to prevent inconsistency during flash/dash
+        // Flash/dash causes instant position changes - using cached positions ensures
+        // all calculations use the SAME positions throughout prediction
+        math::vector3 source_pos = source->get_position();
+        math::vector3 target_pos = target->get_position();
+
         // Get target velocity BEFORE arrival time calculation
         math::vector3 target_velocity = tracker.get_current_velocity();
         float move_speed = target->get_move_speed();
@@ -1952,8 +1964,8 @@ namespace HybridPred
         // Step 1: Compute arrival time using ITERATIVE solver for moving targets
         // CRITICAL FIX: Must account for target movement during projectile travel
         float arrival_time = PhysicsPredictor::compute_arrival_time_moving_target(
-            source->get_position(),
-            target->get_position(),
+            source_pos,
+            target_pos,
             target_velocity,
             spell.projectile_speed,
             spell.delay
@@ -1962,7 +1974,7 @@ namespace HybridPred
         // Step 2: Build reachable region (physics)
 
         ReachableRegion reachable_region = PhysicsPredictor::compute_reachable_region(
-            target->get_position(),
+            target_pos,
             target_velocity,
             arrival_time,
             move_speed
@@ -1982,7 +1994,7 @@ namespace HybridPred
 
         // Step 5: Compute capsule parameters
         // Linear spell = capsule from source toward target
-        math::vector3 to_target = target->get_position() - source->get_position();
+        math::vector3 to_target = target_pos - source_pos;
         float dist_to_target = to_target.magnitude();
 
         constexpr float MIN_SAFE_DISTANCE = 1.0f;  // Minimum safe distance for normalization
@@ -1994,13 +2006,13 @@ namespace HybridPred
         }
 
         math::vector3 direction = to_target / dist_to_target;  // Safe manual normalize
-        math::vector3 capsule_start = source->get_position();
+        math::vector3 capsule_start = source_pos;
         float capsule_length = spell.range;
         float capsule_radius = spell.radius;
 
         // For linear spells, cast position is the source position (spell shoots in direction)
         // But we need to find optimal direction
-        math::vector3 to_center = reachable_region.center - source->get_position();
+        math::vector3 to_center = reachable_region.center - source_pos;
         float dist_to_center = to_center.magnitude();
 
         math::vector3 optimal_direction;
@@ -2228,10 +2240,14 @@ namespace HybridPred
             return result;
         }
 
+        // CRITICAL: Cache source/target positions to prevent inconsistency during flash/dash
+        math::vector3 source_pos = source->get_position();
+        math::vector3 target_pos = target->get_position();
+
         // Step 1: Compute arrival time (instant for most cone spells)
         float arrival_time = PhysicsPredictor::compute_arrival_time(
-            source->get_position(),
-            target->get_position(),
+            source_pos,
+            target_pos,
             spell.projectile_speed,
             spell.delay
         );
@@ -2241,7 +2257,7 @@ namespace HybridPred
         float move_speed = target->get_move_speed();
 
         ReachableRegion reachable_region = PhysicsPredictor::compute_reachable_region(
-            target->get_position(),
+            target_pos,
             target_velocity,
             arrival_time,
             move_speed
@@ -2271,7 +2287,7 @@ namespace HybridPred
         float cone_range = spell.range;
 
         // Optimal direction toward predicted target position
-        math::vector3 to_center = reachable_region.center - source->get_position();
+        math::vector3 to_center = reachable_region.center - source_pos;
         float dist_to_center = to_center.magnitude();
 
         constexpr float MIN_SAFE_DISTANCE = 1.0f;  // Minimum safe distance for normalization
