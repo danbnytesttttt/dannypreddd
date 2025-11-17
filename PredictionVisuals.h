@@ -117,14 +117,31 @@ namespace PredictionVisuals
 
         const auto& settings = VisualsSettings::get();
 
-        // Get current position and velocity with exception handling
+        // Get current position and calculate proper velocity
         math::vector3 current_pos;
         math::vector3 velocity;
 
         try
         {
             current_pos = target->get_position();
-            velocity = target->get_velocity();
+
+            // Calculate velocity from path (same as prediction SDK does)
+            auto path = target->get_path();
+            if (path && path->count() > 1)
+            {
+                // Get direction to next waypoint
+                math::vector3 next_waypoint = path->get(1);
+                math::vector3 direction = (next_waypoint - current_pos).normalized();
+
+                // Velocity = direction * move_speed
+                float move_speed = target->get_move_speed();
+                velocity = direction * move_speed;
+            }
+            else
+            {
+                // Not moving or no path - use zero velocity
+                velocity = math::vector3(0, 0, 0);
+            }
         }
         catch (...)
         {
