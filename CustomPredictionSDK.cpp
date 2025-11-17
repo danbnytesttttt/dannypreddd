@@ -318,6 +318,30 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         return result;
     }
 
+    // CRITICAL: Validate predicted position is within spell range
+    // This prevents casting at targets that will walk out of range
+    float predicted_distance = result.cast_position.distance(source_pos);
+
+    // For linear skillshots, add radius as buffer since we can hit along the path
+    // For circular, be more strict since we need to reach the center
+    float range_buffer = (spell_data.spell_type == pred_sdk::spell_type::linear) ? spell_data.radius : 25.f;
+    float effective_range = spell_data.range + range_buffer;
+
+    if (predicted_distance > effective_range)
+    {
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            char range_msg[256];
+            snprintf(range_msg, sizeof(range_msg),
+                "[REJECT] Predicted position out of range: %.0f > %.0f (range:%.0f + buffer:%.0f)",
+                predicted_distance, effective_range, spell_data.range, range_buffer);
+            g_sdk->log_console(range_msg);
+        }
+        result.is_valid = false;
+        result.hitchance = pred_sdk::hitchance::any;
+        return result;
+    }
+
     // CONCISE DEBUG: Only log when actually casting
     if (should_cast && PredictionSettings::get().enable_debug_logging)
     {
@@ -327,10 +351,11 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
 
         char cast_msg[512];
         snprintf(cast_msg, sizeof(cast_msg),
-            "[CAST] Target:(%.0f,%.0f) Cast:(%.0f,%.0f) Offset:%.0f units | HitChance:%s Threshold:%s | %s",
+            "[CAST] Target:(%.0f,%.0f) Cast:(%.0f,%.0f) Offset:%.0f units PredDist:%.0f | HitChance:%s Threshold:%s | %s",
             target_pos.x, target_pos.z,
             result.cast_position.x, result.cast_position.z,
             offset_dist,
+            predicted_distance,
             hc_name, thresh_name,
             hybrid_result.reasoning.c_str());
         g_sdk->log_console(cast_msg);
