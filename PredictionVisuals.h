@@ -117,11 +117,15 @@ namespace PredictionVisuals
             // Draw line from source to predicted position
             if (settings.draw_line)
             {
-                math::vector2 screen_start, screen_end;
-
                 // Convert 3D positions to 2D screen coordinates
-                if (g_sdk->renderer->world_to_screen(pred.source_position, screen_start) &&
-                    g_sdk->renderer->world_to_screen(pred.cast_position, screen_end))
+                math::vector2 screen_start = g_sdk->renderer->world_to_screen(pred.source_position);
+                math::vector2 screen_end = g_sdk->renderer->world_to_screen(pred.cast_position);
+
+                // Check if both positions are valid (not zero/off-screen)
+                bool start_valid = (screen_start.x != 0.f || screen_start.y != 0.f);
+                bool end_valid = (screen_end.x != 0.f || screen_end.y != 0.f);
+
+                if (start_valid && end_valid)
                 {
                     g_sdk->renderer->add_line_2d(
                         screen_start,
