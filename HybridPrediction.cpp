@@ -2025,7 +2025,7 @@ namespace HybridPred
             optimal_direction = direction;  // Fallback to target direction
         }
 
-        result.cast_position = source->get_position() + optimal_direction * capsule_length;
+        result.cast_position = source_pos + optimal_direction * capsule_length;
 
         // Step 6: Compute hit probabilities for capsule
         float physics_prob = compute_capsule_reachability_overlap(
@@ -2299,11 +2299,11 @@ namespace HybridPred
         }
 
         math::vector3 direction = to_center / dist_to_center;  // Safe manual normalize
-        result.cast_position = source->get_position() + direction * cone_range;
+        result.cast_position = source_pos + direction * cone_range;
 
         // Step 6: Compute hit probabilities for cone
         float physics_prob = compute_cone_reachability_overlap(
-            source->get_position(),
+            source_pos,
             direction,
             cone_half_angle,
             cone_range,
@@ -2311,7 +2311,7 @@ namespace HybridPred
         );
 
         float behavior_prob = compute_cone_behavior_probability(
-            source->get_position(),
+            source_pos,
             direction,
             cone_half_angle,
             cone_range,
