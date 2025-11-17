@@ -1483,7 +1483,8 @@ namespace HybridPred
         }
 
         // =============================================================================
-        // AUTOMATIC CONE DETECTION: Check if spell has cone angle defined
+        // AUTOMATIC CONE DETECTION: Treat cones as wide linear skillshots
+        // Cone spells (Annie W, Cassio R, etc.) are handled as linear predictions facing the enemy
         if (spell.spell_slot >= 0)
         {
             spell_entry* spell_entry_ptr = source->get_spell(spell.spell_slot);
@@ -1496,10 +1497,10 @@ namespace HybridPred
                     if (static_data)
                     {
                         float cone_angle = static_data->get_cast_cone_angle();
-                        // If spell has cone angle > 0, it's a cone spell
+                        // If spell has cone angle > 0, treat as linear (wide skillshot)
                         if (cone_angle > 0.f)
                         {
-                            return compute_cone_prediction(source, target, spell, tracker, edge_cases);
+                            return compute_linear_prediction(source, target, spell, tracker, edge_cases);
                         }
                     }
                 }
