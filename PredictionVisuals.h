@@ -27,8 +27,8 @@ namespace PredictionVisuals
         float prediction_time = 0.75f;           // How far ahead to predict (seconds)
 
         uint32_t current_pos_color = 0xFF00FF00;    // Green - where enemy is NOW
-        uint32_t predicted_pos_color = 0xFFFF6060;  // Red - where they'll be
-        uint32_t movement_line_color = 0xFFFFFF00;  // Yellow - movement direction
+        uint32_t predicted_pos_color = 0xFFFF0000;  // Neon red - where they'll be
+        uint32_t movement_line_color = 0xFFFFFF00;  // Yellow - skillshot line
 
         float current_circle_radius = 65.0f;
         float predicted_circle_radius = 80.0f;
@@ -47,61 +47,21 @@ namespace PredictionVisuals
      */
     inline void draw_continuous_prediction(float current_time)
     {
-        // Debug log (once every 5 seconds)
-        static float last_debug_log = 0.f;
-        static bool has_drawn_successfully = false;
-        static bool function_called_logged = false;
-
-        // Log once to confirm function is being called
-        if (!function_called_logged && g_sdk)
-        {
-            char msg[256];
-            snprintf(msg, sizeof(msg), "[PredVisuals] draw_continuous_prediction() called - enabled=%d",
-                VisualsSettings::get().enabled);
-            g_sdk->log_console(msg);
-            function_called_logged = true;
-        }
-
         // Safety checks
         if (!VisualsSettings::get().enabled)
-        {
-            if (g_sdk && current_time - last_debug_log > 5.0f)
-            {
-                g_sdk->log_console("[PredVisuals] Visuals disabled in settings");
-                last_debug_log = current_time;
-            }
             return;
-        }
 
         if (!g_sdk || !g_sdk->renderer)
-        {
-            if (g_sdk && current_time - last_debug_log > 5.0f)
-            {
-                g_sdk->log_console("[PredVisuals] Renderer not available");
-                last_debug_log = current_time;
-            }
             return;
-        }
 
         if (!sdk::target_selector)
-        {
-            if (current_time - last_debug_log > 5.0f)
-            {
-                g_sdk->log_console("[PredVisuals] Target selector not available");
-                last_debug_log = current_time;
-            }
             return;
-        }
 
-        // Get current target from target selector with additional safety
+        // Get current target from target selector - only draw for YOUR CURRENT TARGET
         auto* target = sdk::target_selector->get_hero_target();
         if (!target)
         {
-            if (current_time - last_debug_log > 5.0f)
-            {
-                g_sdk->log_console("[PredVisuals] No target selected by target selector");
-                last_debug_log = current_time;
-            }
+            // No target selected - don't draw anything
             return;
         }
 
@@ -151,45 +111,6 @@ namespace PredictionVisuals
 
         // Simple linear prediction: position + velocity * time
         math::vector3 predicted_pos = current_pos + velocity * settings.prediction_time;
-
-        // Log first successful draw and velocity info
-        if (!has_drawn_successfully)
-        {
-            float vel_mag = velocity.magnitude();
-            char msg[512];
-            snprintf(msg, sizeof(msg),
-                "[PredVisuals] Target: %s | Vel: (%.1f,%.1f,%.1f) mag=%.1f | PredTime: %.2fs",
-                target->get_char_name().c_str(),
-                velocity.x, velocity.y, velocity.z, vel_mag,
-                settings.prediction_time);
-            g_sdk->log_console(msg);
-            has_drawn_successfully = true;
-        }
-
-        // TEST: Draw a circle at player position to verify renderer works
-        static bool test_logged = false;
-        auto* local_player = g_sdk->object_manager->get_local_player();
-        if (local_player)
-        {
-            math::vector3 player_pos = local_player->get_position();
-
-            // Draw HUGE bright white circle at player feet
-            g_sdk->renderer->add_circle_3d(
-                player_pos,
-                200.0f,     // Large radius
-                5.0f,       // Thick line
-                0xFFFFFFFF  // Bright white
-            );
-
-            if (!test_logged)
-            {
-                char msg[256];
-                snprintf(msg, sizeof(msg), "[PredVisuals] TEST: Drawing white circle at player position (%.0f, %.0f, %.0f)",
-                    player_pos.x, player_pos.y, player_pos.z);
-                g_sdk->log_console(msg);
-                test_logged = true;
-            }
-        }
 
         // Draw current position (green circle)
         if (settings.draw_current_position)

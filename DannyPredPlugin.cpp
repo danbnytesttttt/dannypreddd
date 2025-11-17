@@ -147,7 +147,7 @@ namespace Prediction
             prediction_menu->add_separator();
 
             // === VISUALS SECTION ===
-            prediction_menu->add_label("Continuous Prediction Visuals (Target Selector)");
+            prediction_menu->add_label("Prediction Visuals (Current Target Only)");
 
             // Enable/Disable Visuals
             prediction_menu->add_checkbox(
