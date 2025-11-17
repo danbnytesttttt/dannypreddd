@@ -147,7 +147,7 @@ namespace Prediction
             prediction_menu->add_separator();
 
             // === VISUALS SECTION ===
-            prediction_menu->add_label("Prediction Visuals (50%+ HitChance Only)");
+            prediction_menu->add_label("Prediction Visuals (Moving Targets Only)");
 
             // Enable/Disable Visuals
             prediction_menu->add_checkbox(

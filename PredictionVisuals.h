@@ -123,23 +123,13 @@ namespace PredictionVisuals
             return;
         }
 
+        // Only draw if target is actually moving
+        float velocity_magnitude = velocity.magnitude();
+        if (velocity_magnitude < 1.0f)
+            return;  // Target is stationary - prediction not useful
+
         // Simple linear prediction: position + velocity * time
         math::vector3 predicted_pos = current_pos + velocity * settings.prediction_time;
-
-        // Calculate hitchance based on how far enemy can move
-        float velocity_magnitude = velocity.magnitude();
-        float reachable_radius = velocity_magnitude * settings.prediction_time;
-
-        // Simple hitchance calculation: higher movement = lower hitchance
-        // If enemy can move 0 units: 100% hitchance
-        // If enemy can move 300+ units: 0% hitchance
-        float hitchance_percent = 100.0f - (reachable_radius / 3.0f);
-        if (hitchance_percent < 0.0f) hitchance_percent = 0.0f;
-        if (hitchance_percent > 100.0f) hitchance_percent = 100.0f;
-
-        // Only draw if hitchance >= 50%
-        if (hitchance_percent < 50.0f)
-            return;
 
         // Draw current position (very light version of main color)
         if (settings.draw_current_position)
