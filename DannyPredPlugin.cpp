@@ -1,11 +1,15 @@
 #include "sdk.hpp"
 #include "CustomPredictionSDK.h"
 #include "PredictionSettings.h"
+#include "PredictionTelemetry.h"
 
 CustomPredictionSDK customPrediction;
 
 // Global variable for champion name
 std::string MyHeroNamePredCore;
+
+// Telemetry session tracking
+float g_session_start_time = 0.f;
 
 // Menu instances
 namespace menu_sdk = sdk::menu;
@@ -14,6 +18,7 @@ menu_sdk::menu_item* prediction_menu = nullptr;
 // Menu items
 menu_sdk::menu_item* enable_dash_prediction_item = nullptr;
 menu_sdk::menu_item* enable_debug_logging_item = nullptr;
+menu_sdk::menu_item* enable_telemetry_item = nullptr;
 menu_sdk::menu_item* grid_search_quality_item = nullptr;
 
 // Menu callback to update settings
@@ -26,6 +31,9 @@ void update_menu_settings()
 
     if (enable_debug_logging_item)
         settings.enable_debug_logging = enable_debug_logging_item->get_bool();
+
+    if (enable_telemetry_item)
+        settings.enable_telemetry = enable_telemetry_item->get_bool();
 
     if (grid_search_quality_item)
     {
@@ -105,6 +113,18 @@ namespace Prediction
             );
             enable_debug_logging_item->set_tooltip("Enable verbose console logging for debugging (may impact performance)");
 
+            // Telemetry Toggle
+            enable_telemetry_item = prediction_menu->add_checkbox(
+                "enable_telemetry",
+                "Enable Telemetry",
+                true
+            );
+            enable_telemetry_item->set_tooltip(
+                "Log prediction data to file for post-game analysis\n"
+                "File: dannypred_telemetry_TIMESTAMP.txt\n"
+                "Send this file for performance analysis"
+            );
+
             // Grid Search Quality
             grid_search_quality_item = prediction_menu->add_combobox(
                 "grid_search_quality",
@@ -142,10 +162,26 @@ namespace Prediction
 
         // Create menu
         LoadMenu();
+
+        // Initialize telemetry
+        g_session_start_time = g_sdk->clock_facade->get_game_time();
+        if (PredictionSettings::get().enable_telemetry)
+        {
+            PredictionTelemetry::TelemetryLogger::initialize(MyHeroNamePredCore, true);
+            g_sdk->log_console("[Danny.Prediction] Telemetry enabled - logging to file");
+        }
     }
 
     void UnloadPrediction()
     {
+        // Finalize telemetry
+        if (PredictionSettings::get().enable_telemetry)
+        {
+            float session_duration = g_sdk->clock_facade->get_game_time() - g_session_start_time;
+            PredictionTelemetry::TelemetryLogger::finalize(session_duration);
+            g_sdk->log_console("[Danny.Prediction] Telemetry finalized - check log file");
+        }
+
         // Unregister callback
         g_sdk->event_manager->unregister_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
 

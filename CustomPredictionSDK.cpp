@@ -1,9 +1,11 @@
 #include "CustomPredictionSDK.h"
 #include "EdgeCaseDetection.h"
 #include "PredictionSettings.h"
+#include "PredictionTelemetry.h"
 #include <algorithm>
 #include <limits>
 #include <sstream>
+#include <chrono>
 
 // =============================================================================
 // TARGETED SPELL PREDICTION
@@ -125,9 +127,16 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         g_sdk->log_console(debug_msg);
     }
 
+    // Start telemetry timing
+    auto telemetry_start = std::chrono::high_resolution_clock::now();
+
     // Use hybrid prediction system
     HybridPred::HybridPredictionResult hybrid_result =
         HybridPred::PredictionManager::predict(spell_data.source, obj, spell_data);
+
+    // End telemetry timing
+    auto telemetry_end = std::chrono::high_resolution_clock::now();
+    float computation_time_ms = std::chrono::duration<float, std::milli>(telemetry_end - telemetry_start).count();
 
     // FIXED: Safe debug logging for prediction details
     if (PredictionSettings::get().enable_debug_logging)
@@ -146,6 +155,13 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
             std::string debug_msg = "[Danny.Prediction] Reason invalid: " + hybrid_result.reasoning;
             g_sdk->log_console(debug_msg.c_str());
         }
+
+        // Log invalid prediction to telemetry
+        if (PredictionSettings::get().enable_telemetry)
+        {
+            PredictionTelemetry::TelemetryLogger::log_invalid_prediction(hybrid_result.reasoning);
+        }
+
         result.hitchance = pred_sdk::hitchance::any;
         return result;
     }
@@ -215,6 +231,51 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         {
             PRED_DEBUG_LOG("[Danny.Prediction] No collision detected - path is clear");
         }
+    }
+
+    // Log successful prediction to telemetry
+    if (PredictionSettings::get().enable_telemetry)
+    {
+        PredictionTelemetry::PredictionEvent event;
+        event.timestamp = g_sdk->clock_facade->get_game_time();
+        event.target_name = obj->get_char_name();
+
+        // Map spell type enum to string
+        switch (spell_data.spell_type)
+        {
+            case pred_sdk::spell_type::linear: event.spell_type = "linear"; break;
+            case pred_sdk::spell_type::circular: event.spell_type = "circular"; break;
+            case pred_sdk::spell_type::targetted: event.spell_type = "targeted"; break;
+            case pred_sdk::spell_type::vector: event.spell_type = "vector"; break;
+            default: event.spell_type = "unknown"; break;
+        }
+
+        event.hit_chance = hybrid_result.hit_chance;
+        event.confidence = hybrid_result.confidence_score;
+        event.distance = spell_data.source->get_position().distance(obj->get_position());
+        event.computation_time_ms = computation_time_ms;
+
+        // Extract edge case info from reasoning
+        if (hybrid_result.reasoning.find("STASIS") != std::string::npos)
+            event.edge_case = "stasis";
+        else if (hybrid_result.reasoning.find("CHANNEL") != std::string::npos ||
+                 hybrid_result.reasoning.find("RECALL") != std::string::npos)
+            event.edge_case = "channeling";
+        else if (hybrid_result.reasoning.find("DASH") != std::string::npos)
+        {
+            event.edge_case = "dash";
+            event.was_dash = true;
+        }
+        else
+            event.edge_case = "normal";
+
+        // Check for stationary/animation lock
+        event.was_stationary = hybrid_result.reasoning.find("STATIONARY") != std::string::npos;
+        event.was_animation_locked = hybrid_result.reasoning.find("animation") != std::string::npos ||
+                                      hybrid_result.reasoning.find("LOCKED") != std::string::npos;
+        event.collision_detected = false;  // Will be updated if collision check fails
+
+        PredictionTelemetry::TelemetryLogger::log_prediction(event);
     }
 
     return result;
