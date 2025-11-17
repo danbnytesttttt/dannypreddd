@@ -2048,7 +2048,10 @@ namespace HybridPred
             optimal_direction = direction;  // Fallback to target direction
         }
 
-        result.cast_position = source_pos + optimal_direction * capsule_length;
+        // For linear spells, cast_position is where we're aiming
+        // This should be at the predicted target position, not at max range
+        // The spell travels from source along optimal_direction until it hits or reaches max range
+        result.cast_position = reachable_region.center;
 
         // Step 6: Compute hit probabilities for capsule
         float physics_prob = compute_capsule_reachability_overlap(
