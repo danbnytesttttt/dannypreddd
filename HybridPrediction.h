@@ -410,6 +410,15 @@ namespace HybridPred
         );
 
         /**
+         * Predict position accounting for waypoints in path
+         * Walks along actual path segments for more accurate prediction when target will turn
+         */
+        static math::vector3 predict_position_with_waypoints(
+            game_object* target,
+            float prediction_time
+        );
+
+        /**
          * Compute physics-based hit probability
          *
          * P_physics = (projectile_area ∩ reachable_area) / reachable_area

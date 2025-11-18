@@ -1069,6 +1069,55 @@ namespace HybridPred
         return current_pos + current_velocity * prediction_time;
     }
 
+    math::vector3 PhysicsPredictor::predict_position_with_waypoints(
+        game_object* target,
+        float prediction_time)
+    {
+        if (!target || !target->is_valid())
+            return math::vector3();
+
+        math::vector3 current_pos = target->get_position();
+        float move_speed = target->get_move_speed();
+
+        // Get path waypoints
+        auto path = target->get_path();
+
+        // If no waypoints or only current position, fall back to linear
+        if (path.size() < 2)
+        {
+            // No path - target is stationary or path data unavailable
+            return current_pos;
+        }
+
+        // Walk along the path waypoints
+        float remaining_distance = prediction_time * move_speed;
+        math::vector3 predicted_pos = current_pos;
+
+        for (size_t i = 1; i < path.size() && remaining_distance > 0.f; i++)
+        {
+            math::vector3 next_waypoint = path[i];
+            math::vector3 segment = next_waypoint - predicted_pos;
+            float segment_length = segment.magnitude();
+
+            if (segment_length < 0.01f)
+                continue;  // Skip degenerate waypoints
+
+            if (remaining_distance <= segment_length)
+            {
+                // Prediction ends within this segment
+                math::vector3 direction = segment / segment_length;
+                return predicted_pos + direction * remaining_distance;
+            }
+
+            // Move to next waypoint and continue
+            remaining_distance -= segment_length;
+            predicted_pos = next_waypoint;
+        }
+
+        // Reached end of path - return last waypoint
+        return predicted_pos;
+    }
+
     float PhysicsPredictor::compute_physics_hit_probability(
         const math::vector3& cast_position,
         float projectile_radius,
@@ -1611,9 +1660,20 @@ namespace HybridPred
         );
 
         // Step 2: Build reachable region (physics)
+        // WAYPOINT PREDICTION: Use path waypoints for more accurate center prediction
+        math::vector3 predicted_center = PhysicsPredictor::predict_position_with_waypoints(
+            target,
+            arrival_time
+        );
+
+        // If waypoint prediction returned zero vector (no valid path), fall back to linear
+        if (predicted_center.x == 0.f && predicted_center.y == 0.f && predicted_center.z == 0.f)
+        {
+            predicted_center = target_pos + target_velocity * arrival_time;
+        }
 
         ReachableRegion reachable_region = PhysicsPredictor::compute_reachable_region(
-            target_pos,
+            predicted_center,  // Use waypoint-aware center
             target_velocity,
             arrival_time,
             move_speed
@@ -1987,9 +2047,21 @@ namespace HybridPred
         );
 
         // Step 2: Build reachable region (physics)
+        // WAYPOINT PREDICTION: Use path waypoints for more accurate center prediction
+        // This prevents misprediction when target is approaching a turn in their path
+        math::vector3 predicted_center = PhysicsPredictor::predict_position_with_waypoints(
+            target,
+            arrival_time
+        );
+
+        // If waypoint prediction returned zero vector (no valid path), fall back to linear
+        if (predicted_center.x == 0.f && predicted_center.y == 0.f && predicted_center.z == 0.f)
+        {
+            predicted_center = target_pos + target_velocity * arrival_time;
+        }
 
         ReachableRegion reachable_region = PhysicsPredictor::compute_reachable_region(
-            target_pos,
+            predicted_center,  // Use waypoint-aware center
             target_velocity,
             arrival_time,
             move_speed
