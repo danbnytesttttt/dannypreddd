@@ -2442,18 +2442,28 @@ namespace HybridPred
             float distance_to_first_cast = (first_cast - source_pos).magnitude();
             if (distance_to_first_cast > max_first_cast_range)
             {
-                // Adjust: Move line closer to source while maintaining orientation
-                // Place first_cast at max_first_cast_range in direction of predicted target
-                if (dist_to_predicted > EPSILON)
+                // Adjust: Slide line along orientation direction towards source
+                // This maintains the line's orientation while bringing first_cast within range
+
+                // Calculate how much to slide the line towards source
+                float overshoot = distance_to_first_cast - max_first_cast_range;
+
+                // Slide both points along the line's direction (towards source)
+                // Direction from first_cast to source along the line's orientation
+                math::vector3 to_first_cast = first_cast - source_pos;
+                float dot_product = to_first_cast.dot(direction);
+
+                // Project onto line direction and slide
+                math::vector3 slide_offset = direction * overshoot;
+                first_cast = first_cast - slide_offset;
+                second_cast = second_cast - slide_offset;
+
+                // Verify first_cast is now within range (safety check)
+                float new_distance = (first_cast - source_pos).magnitude();
+                if (new_distance > max_first_cast_range)
                 {
-                    math::vector3 to_target = to_predicted / dist_to_predicted;  // Safe manual normalize
-                    first_cast = source_pos + to_target * max_first_cast_range;
-                    second_cast = first_cast + direction * vector_length;
-                }
-                else
-                {
-                    // Target too close - use default forward direction
-                    first_cast = source_pos + direction * std::min(max_first_cast_range, vector_length * 0.5f);
+                    // Fallback: place first_cast at max range in line direction
+                    first_cast = source_pos + direction * max_first_cast_range;
                     second_cast = first_cast + direction * vector_length;
                 }
             }
