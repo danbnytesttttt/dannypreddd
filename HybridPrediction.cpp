@@ -1,9 +1,3 @@
-// CRITICAL: Must be FIRST - disables iterator debugging in ALL builds (Debug AND Release)
-// This prevents linker error LNK2019: unresolved external symbol _CrtDbgReport
-// We MUST disable this even in Debug builds to avoid CRT library conflicts
-#undef _ITERATOR_DEBUG_LEVEL
-#define _ITERATOR_DEBUG_LEVEL 0
-
 #include "HybridPrediction.h"
 #include "EdgeCaseDetection.h"
 #include <cmath>
@@ -121,6 +115,10 @@ namespace HybridPred
     void TargetBehaviorTracker::update()
     {
         if (!target_ || !target_->is_valid())
+            return;
+
+        // CRITICAL: Validate clock_facade before accessing
+        if (!g_sdk || !g_sdk->clock_facade)
             return;
 
         float current_time = g_sdk->clock_facade->get_game_time();
@@ -267,6 +265,10 @@ namespace HybridPred
         // PATTERN EXPIRATION: Reset pattern if no movement updates for 3+ seconds
         if (!movement_history_.empty())
         {
+            // CRITICAL: Validate clock_facade before accessing
+            if (!g_sdk || !g_sdk->clock_facade)
+                return;
+
             float current_time = g_sdk->clock_facade->get_game_time();
             float last_movement_time = movement_history_.back().timestamp;
             constexpr float PATTERN_EXPIRY_DURATION = 3.0f;  // 3 seconds of inactivity
@@ -1079,7 +1081,8 @@ namespace HybridPred
         math::vector3 aim_dir = (target_position - cast_position);
         float aim_magnitude = aim_dir.magnitude();
 
-        if (aim_magnitude > EPSILON)
+        // CRITICAL: Check nav_mesh is available before using it
+        if (aim_magnitude > EPSILON && g_sdk && g_sdk->nav_mesh)
         {
             aim_dir = aim_dir / aim_magnitude;  // Normalize
 

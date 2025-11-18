@@ -19,6 +19,13 @@ pred_sdk::pred_data CustomPredictionSDK::targetted(pred_sdk::spell_data spell_da
     }
 
     // Use target selector to find best target
+    // CRITICAL: Check target_selector is available before calling
+    if (!sdk::target_selector)
+    {
+        result.hitchance = pred_sdk::hitchance::any;
+        return result;
+    }
+
     auto* target = sdk::target_selector->get_hero_target();
 
     if (!target || !target->is_valid())

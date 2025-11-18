@@ -1,12 +1,5 @@
 #pragma once
 
-// CRITICAL: Disable iterator debugging in release mode to avoid CRT linker errors
-// This MUST be set before any STL headers are included
-#ifndef _DEBUG
-    #undef _ITERATOR_DEBUG_LEVEL
-    #define _ITERATOR_DEBUG_LEVEL 0
-#endif
-
 #include "sdk.hpp"
 #include "StandalonePredictionSDK.h"  // MUST be included AFTER sdk.hpp for compatibility
 #include "EdgeCaseDetection.h"

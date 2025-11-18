@@ -48,6 +48,12 @@ extern "C" __declspec(dllexport) bool PluginLoad(core_sdk* sdk, void** custom_sd
 
     *custom_sdk = &customPrediction;
 
+    // CRITICAL: Validate object_manager and local player before accessing
+    if (!g_sdk->object_manager || !g_sdk->object_manager->get_local_player())
+    {
+        return false;
+    }
+
     MyHeroNamePredCore = g_sdk->object_manager->get_local_player()->get_char_name();
 
     Prediction::LoadPrediction();
