@@ -41,6 +41,11 @@ namespace PredictionTelemetry
         float spell_radius = 0.f;
         float spell_delay = 0.f;
         float spell_speed = 0.f;
+
+        // Movement and prediction offset data
+        float target_velocity = 0.f;         // Target's movement speed
+        float prediction_offset = 0.f;       // Distance between current and predicted position
+        bool target_is_moving = false;       // Whether target was moving during prediction
     };
 
     struct SessionStats
@@ -86,6 +91,33 @@ namespace PredictionTelemetry
         int patterns_detected = 0;
         int alternating_patterns = 0;
         int repeating_patterns = 0;
+
+        // Rejection reasons (diagnose why predictions fail)
+        int rejected_by_hitchance = 0;
+        int rejected_by_predicted_range = 0;
+        int rejected_by_collision = 0;
+        int rejected_by_fog = 0;
+        int rejected_by_invalid_target = 0;
+        int rejected_by_current_range = 0;
+
+        // Movement pattern analysis
+        int predictions_while_moving = 0;
+        int predictions_while_stationary = 0;
+        float total_target_velocity = 0.f;
+        float avg_target_velocity = 0.f;
+
+        // Prediction offset stats
+        float total_prediction_offset = 0.f;
+        float avg_prediction_offset = 0.f;
+        float max_prediction_offset = 0.f;
+
+        // Performance by distance
+        int close_range_predictions = 0;   // 0-400 units
+        int mid_range_predictions = 0;     // 400-700 units
+        int long_range_predictions = 0;    // 700+ units
+        float close_range_total_hc = 0.f;
+        float mid_range_total_hc = 0.f;
+        float long_range_total_hc = 0.f;
 
         // Session info
         std::string session_start_time;
@@ -172,6 +204,35 @@ namespace PredictionTelemetry
             stats_.target_prediction_counts[event.target_name]++;
             stats_.target_avg_hitchance[event.target_name] += event.hit_chance;
 
+            // Movement pattern analysis
+            if (event.target_is_moving)
+                stats_.predictions_while_moving++;
+            else
+                stats_.predictions_while_stationary++;
+            stats_.total_target_velocity += event.target_velocity;
+
+            // Prediction offset stats
+            stats_.total_prediction_offset += event.prediction_offset;
+            if (event.prediction_offset > stats_.max_prediction_offset)
+                stats_.max_prediction_offset = event.prediction_offset;
+
+            // Performance by distance
+            if (event.distance < 400.f)
+            {
+                stats_.close_range_predictions++;
+                stats_.close_range_total_hc += event.hit_chance;
+            }
+            else if (event.distance < 700.f)
+            {
+                stats_.mid_range_predictions++;
+                stats_.mid_range_total_hc += event.hit_chance;
+            }
+            else
+            {
+                stats_.long_range_predictions++;
+                stats_.long_range_total_hc += event.hit_chance;
+            }
+
             // Store event for detailed log
             events_.push_back(event);
         }
@@ -181,6 +242,54 @@ namespace PredictionTelemetry
             if (!enabled_) return;
             stats_.total_predictions++;
             stats_.invalid_predictions++;
+        }
+
+        static void log_rejection_hitchance()
+        {
+            if (!enabled_) return;
+            stats_.total_predictions++;
+            stats_.invalid_predictions++;
+            stats_.rejected_by_hitchance++;
+        }
+
+        static void log_rejection_predicted_range()
+        {
+            if (!enabled_) return;
+            stats_.total_predictions++;
+            stats_.invalid_predictions++;
+            stats_.rejected_by_predicted_range++;
+        }
+
+        static void log_rejection_collision()
+        {
+            if (!enabled_) return;
+            stats_.total_predictions++;
+            stats_.invalid_predictions++;
+            stats_.rejected_by_collision++;
+        }
+
+        static void log_rejection_fog()
+        {
+            if (!enabled_) return;
+            stats_.total_predictions++;
+            stats_.invalid_predictions++;
+            stats_.rejected_by_fog++;
+        }
+
+        static void log_rejection_invalid_target()
+        {
+            if (!enabled_) return;
+            stats_.total_predictions++;
+            stats_.invalid_predictions++;
+            stats_.rejected_by_invalid_target++;
+        }
+
+        static void log_rejection_current_range()
+        {
+            if (!enabled_) return;
+            stats_.total_predictions++;
+            stats_.invalid_predictions++;
+            stats_.rejected_by_current_range++;
         }
 
         static void log_pattern_detected(bool is_alternating)
@@ -225,6 +334,13 @@ namespace PredictionTelemetry
                 int count = stats_.target_prediction_counts[pair.first];
                 if (count > 0)
                     pair.second /= count;
+            }
+
+            // Calculate new averages
+            if (stats_.valid_predictions > 0)
+            {
+                stats_.avg_target_velocity = stats_.total_target_velocity / stats_.valid_predictions;
+                stats_.avg_prediction_offset = stats_.total_prediction_offset / stats_.valid_predictions;
             }
 
             // Write full report
@@ -339,6 +455,110 @@ namespace PredictionTelemetry
                 snprintf(buf, sizeof(buf), "Cast Distance - Avg: %.0f | Max: %.0f | Range Violations: %d",
                     avg_dist, max_dist, range_violations);
                 g_sdk->log_console(buf);
+            }
+
+            // Rejection analysis
+            if (stats_.invalid_predictions > 0)
+            {
+                g_sdk->log_console("--- REJECTION ANALYSIS ---");
+                int total_invalid = stats_.invalid_predictions;
+                snprintf(buf, sizeof(buf), "Total Rejected: %d", total_invalid);
+                g_sdk->log_console(buf);
+
+                if (stats_.rejected_by_hitchance > 0)
+                {
+                    snprintf(buf, sizeof(buf), "  Hitchance too low: %d (%.1f%%)",
+                        stats_.rejected_by_hitchance,
+                        stats_.rejected_by_hitchance * 100.f / total_invalid);
+                    g_sdk->log_console(buf);
+                }
+                if (stats_.rejected_by_predicted_range > 0)
+                {
+                    snprintf(buf, sizeof(buf), "  Predicted position out of range: %d (%.1f%%)",
+                        stats_.rejected_by_predicted_range,
+                        stats_.rejected_by_predicted_range * 100.f / total_invalid);
+                    g_sdk->log_console(buf);
+                }
+                if (stats_.rejected_by_current_range > 0)
+                {
+                    snprintf(buf, sizeof(buf), "  Current position out of range: %d (%.1f%%)",
+                        stats_.rejected_by_current_range,
+                        stats_.rejected_by_current_range * 100.f / total_invalid);
+                    g_sdk->log_console(buf);
+                }
+                if (stats_.rejected_by_collision > 0)
+                {
+                    snprintf(buf, sizeof(buf), "  Collision blocking: %d (%.1f%%)",
+                        stats_.rejected_by_collision,
+                        stats_.rejected_by_collision * 100.f / total_invalid);
+                    g_sdk->log_console(buf);
+                }
+                if (stats_.rejected_by_fog > 0)
+                {
+                    snprintf(buf, sizeof(buf), "  Fog of war: %d (%.1f%%)",
+                        stats_.rejected_by_fog,
+                        stats_.rejected_by_fog * 100.f / total_invalid);
+                    g_sdk->log_console(buf);
+                }
+                if (stats_.rejected_by_invalid_target > 0)
+                {
+                    snprintf(buf, sizeof(buf), "  Invalid target: %d (%.1f%%)",
+                        stats_.rejected_by_invalid_target,
+                        stats_.rejected_by_invalid_target * 100.f / total_invalid);
+                    g_sdk->log_console(buf);
+                }
+            }
+
+            // Movement pattern analysis
+            if (stats_.valid_predictions > 0)
+            {
+                g_sdk->log_console("--- MOVEMENT ANALYSIS ---");
+                snprintf(buf, sizeof(buf), "Moving: %d (%.1f%%) | Stationary: %d (%.1f%%)",
+                    stats_.predictions_while_moving,
+                    stats_.predictions_while_moving * 100.f / stats_.valid_predictions,
+                    stats_.predictions_while_stationary,
+                    stats_.predictions_while_stationary * 100.f / stats_.valid_predictions);
+                g_sdk->log_console(buf);
+
+                snprintf(buf, sizeof(buf), "Avg Target Velocity: %.0f units/sec",
+                    stats_.avg_target_velocity);
+                g_sdk->log_console(buf);
+            }
+
+            // Prediction offset stats
+            if (stats_.valid_predictions > 0)
+            {
+                g_sdk->log_console("--- PREDICTION TARGETING ---");
+                snprintf(buf, sizeof(buf), "Avg Offset: %.0f units | Max: %.0f units",
+                    stats_.avg_prediction_offset, stats_.max_prediction_offset);
+                g_sdk->log_console(buf);
+            }
+
+            // Performance by distance
+            if (stats_.valid_predictions > 0)
+            {
+                g_sdk->log_console("--- RANGE ANALYSIS ---");
+                if (stats_.close_range_predictions > 0)
+                {
+                    float avg_hc = stats_.close_range_total_hc / stats_.close_range_predictions;
+                    snprintf(buf, sizeof(buf), "Close (0-400u): %d casts @ %.0f%% avg HC",
+                        stats_.close_range_predictions, avg_hc * 100.f);
+                    g_sdk->log_console(buf);
+                }
+                if (stats_.mid_range_predictions > 0)
+                {
+                    float avg_hc = stats_.mid_range_total_hc / stats_.mid_range_predictions;
+                    snprintf(buf, sizeof(buf), "Mid (400-700u): %d casts @ %.0f%% avg HC",
+                        stats_.mid_range_predictions, avg_hc * 100.f);
+                    g_sdk->log_console(buf);
+                }
+                if (stats_.long_range_predictions > 0)
+                {
+                    float avg_hc = stats_.long_range_total_hc / stats_.long_range_predictions;
+                    snprintf(buf, sizeof(buf), "Long (700+u): %d casts @ %.0f%% avg HC",
+                        stats_.long_range_predictions, avg_hc * 100.f);
+                    g_sdk->log_console(buf);
+                }
             }
 
             // Per-target stats (top 10 by prediction count)

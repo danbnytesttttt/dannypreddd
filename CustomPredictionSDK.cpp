@@ -135,6 +135,7 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     if (!obj || !obj->is_valid())
     {
         PRED_DEBUG_LOG("[Danny.Prediction] EARLY EXIT: Invalid target obj!");
+        PredictionTelemetry::TelemetryLogger::log_rejection_invalid_target();
         result.hitchance = pred_sdk::hitchance::any;
         return result;
     }
@@ -197,6 +198,7 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
                 distance_to_target, spell_data.range);
             g_sdk->log_console(range_msg);
         }
+        PredictionTelemetry::TelemetryLogger::log_rejection_current_range();
         result.hitchance = pred_sdk::hitchance::any;
         result.is_valid = false;
         return result;
@@ -211,6 +213,7 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     if (!should_predict)
     {
         // Target is in fog for too long - don't cast at stale position
+        PredictionTelemetry::TelemetryLogger::log_rejection_fog();
         result.hitchance = pred_sdk::hitchance::any;
         result.is_valid = false;
         return result;
@@ -313,6 +316,7 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
                 hc_name, thresh_name);
             g_sdk->log_console(reject_msg);
         }
+        PredictionTelemetry::TelemetryLogger::log_rejection_hitchance();
         result.is_valid = false;
         result.hitchance = pred_sdk::hitchance::any;
         return result;
@@ -337,6 +341,7 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
                 predicted_distance, effective_range, spell_data.range, range_buffer);
             g_sdk->log_console(range_msg);
         }
+        PredictionTelemetry::TelemetryLogger::log_rejection_predicted_range();
         result.is_valid = false;
         result.hitchance = pred_sdk::hitchance::any;
         return result;
@@ -368,6 +373,7 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         if (collision.collided)
         {
             // CRITICAL: For non-piercing skillshots, ANY collision invalidates the prediction
+            PredictionTelemetry::TelemetryLogger::log_rejection_collision();
             result.is_valid = false;
             result.hitchance = pred_sdk::hitchance::any;
             return result;
@@ -401,6 +407,16 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         event.spell_radius = spell_data.radius;
         event.spell_delay = spell_data.delay;
         event.spell_speed = spell_data.speed;
+
+        // Movement and prediction offset data
+        math::vector3 current_pos = obj->get_position();
+        math::vector3 predicted_pos = result.cast_position;
+        event.prediction_offset = predicted_pos.distance(current_pos);
+        event.target_velocity = obj->get_move_speed();
+
+        // Check if target is moving by examining path
+        auto path = obj->get_path();
+        event.target_is_moving = (path.size() > 1);
 
         // Extract edge case info from reasoning
         if (hybrid_result.reasoning.find("STASIS") != std::string::npos)
