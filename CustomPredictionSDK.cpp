@@ -1,7 +1,13 @@
 #include "CustomPredictionSDK.h"
 #include "EdgeCaseDetection.h"
+#include "PredictionSettings.h"
+#include "PredictionTelemetry.h"
+#include "PredictionVisuals.h"
+#include "FogOfWarTracker.h"
 #include <algorithm>
 #include <limits>
+#include <sstream>
+#include <chrono>
 
 // =============================================================================
 // TARGETED SPELL PREDICTION
@@ -9,6 +15,8 @@
 
 pred_sdk::pred_data CustomPredictionSDK::targetted(pred_sdk::spell_data spell_data)
 {
+    PRED_DEBUG_LOG("[Danny.Prediction] targetted() called (point-and-click spell)");
+
     pred_sdk::pred_data result{};
 
     // Targeted spells don't need prediction - just return target position
@@ -50,14 +58,50 @@ pred_sdk::pred_data CustomPredictionSDK::targetted(pred_sdk::spell_data spell_da
 
 pred_sdk::pred_data CustomPredictionSDK::predict(pred_sdk::spell_data spell_data)
 {
+    pred_sdk::pred_data result{};
+
+    // Safety: Validate SDK is initialized
+    if (!g_sdk || !g_sdk->object_manager)
+    {
+        result.hitchance = pred_sdk::hitchance::any;
+        result.is_valid = false;
+        return result;
+    }
+
+    if (PredictionSettings::get().enable_debug_logging)
+    {
+        char debug_msg[512];
+        snprintf(debug_msg, sizeof(debug_msg),
+            "[Danny.Prediction] Auto-target predict() - source=0x%p range=%.0f type=%d",
+            (void*)spell_data.source, spell_data.range, static_cast<int>(spell_data.spell_type));
+        g_sdk->log_console(debug_msg);
+    }
+
+    // If source is null, use local player as fallback
+    if (!spell_data.source || !spell_data.source->is_valid())
+    {
+        spell_data.source = g_sdk->object_manager->get_local_player();
+        if (PredictionSettings::get().enable_debug_logging)
+            g_sdk->log_console("[Danny.Prediction] Auto-target: Using local player as source");
+    }
+
     // Auto-select best target
     game_object* best_target = get_best_target(spell_data);
 
     if (!best_target)
     {
+        if (PredictionSettings::get().enable_debug_logging)
+            g_sdk->log_console("[Danny.Prediction] Auto-target: No valid target found");
         pred_sdk::pred_data result{};
         result.hitchance = pred_sdk::hitchance::any;
         return result;
+    }
+
+    // FIXED: Use safe string formatting to prevent buffer overflow
+    if (PredictionSettings::get().enable_debug_logging)
+    {
+        std::string debug_msg = "[Danny.Prediction] Auto-target selected: " + best_target->get_char_name();
+        g_sdk->log_console(debug_msg.c_str());
     }
 
     return predict(best_target, spell_data);
@@ -71,39 +115,146 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
 {
     pred_sdk::pred_data result{};
 
-    if (!obj || !obj->is_valid() || !spell_data.source || !spell_data.source->is_valid())
+    // Safety: Validate SDK is initialized
+    if (!g_sdk || !g_sdk->object_manager || !g_sdk->clock_facade)
     {
+        result.hitchance = pred_sdk::hitchance::any;
+        result.is_valid = false;
+        return result;
+    }
+
+    // FIXED: Use safe debug logging
+    if (PredictionSettings::get().enable_debug_logging)
+    {
+        char debug_msg[256];
+        snprintf(debug_msg, sizeof(debug_msg), "[Danny.Prediction] predict(target) called - obj=0x%p source=0x%p",
+            (void*)obj, (void*)spell_data.source);
+        g_sdk->log_console(debug_msg);
+    }
+
+    // Validation: obj must exist and be valid
+    if (!obj || !obj->is_valid())
+    {
+        PRED_DEBUG_LOG("[Danny.Prediction] EARLY EXIT: Invalid target obj!");
+        PredictionTelemetry::TelemetryLogger::log_rejection_invalid_target();
         result.hitchance = pred_sdk::hitchance::any;
         return result;
     }
 
-    // DEBUG: Log that Danny.Prediction is being used (remove after testing)
-    static bool first_call = true;
-    if (first_call)
+    // If source is null/invalid, use local player as default (expected behavior for spell scripts)
+    // This is normal - spell scripts typically don't set source, expecting prediction SDK to auto-fill
+    if (!spell_data.source || !spell_data.source->is_valid())
     {
-        g_sdk->log_console("[Danny.Prediction] Active and predicting!");
-        first_call = false;
+        spell_data.source = g_sdk->object_manager->get_local_player();
+
+        // Validate local player is valid and has valid position
+        if (!spell_data.source || !spell_data.source->is_valid())
+        {
+            // Should never happen - local player invalid
+            g_sdk->log_console("[Danny.Prediction] CRITICAL ERROR: Local player is null or invalid!");
+            result.hitchance = pred_sdk::hitchance::any;
+            result.is_valid = false;
+            return result;
+        }
+
+        // Validate position is not zero/invalid (sanity check)
+        math::vector3 source_pos = spell_data.source->get_position();
+        if (math::is_zero(source_pos))
+        {
+            // Local player has invalid position (zero vector)
+            char err_msg[256];
+            snprintf(err_msg, sizeof(err_msg),
+                "[Danny.Prediction] ERROR: Local player position is zero! Source may be invalid.");
+            g_sdk->log_console(err_msg);
+            result.hitchance = pred_sdk::hitchance::any;
+            result.is_valid = false;
+            return result;
+        }
     }
+
+    // FIXED: Safe debug logging for spell details
+    if (PredictionSettings::get().enable_debug_logging)
+    {
+        char debug_msg[256];
+        snprintf(debug_msg, sizeof(debug_msg), "[Danny.Prediction] Spell: Range=%.0f Radius=%.0f Delay=%.2f Speed=%.0f Type=%d",
+            spell_data.range, spell_data.radius, spell_data.delay, spell_data.projectile_speed,
+            static_cast<int>(spell_data.spell_type));
+        g_sdk->log_console(debug_msg);
+    }
+
+    // CRITICAL: Check range BEFORE prediction to avoid wasting computation
+    // Cache positions to prevent inconsistency from flash/dash
+    math::vector3 source_pos = spell_data.source->get_position();
+    math::vector3 target_pos = obj->get_position();
+    float distance_to_target = target_pos.distance(source_pos);
+
+    // Add 50 unit buffer to account for target movement during cast
+    if (distance_to_target > spell_data.range + 50.f)
+    {
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            char range_msg[256];
+            snprintf(range_msg, sizeof(range_msg),
+                "[Danny.Prediction] Target out of range: %.0f > %.0f - skipping prediction",
+                distance_to_target, spell_data.range);
+            g_sdk->log_console(range_msg);
+        }
+        PredictionTelemetry::TelemetryLogger::log_rejection_current_range();
+        result.hitchance = pred_sdk::hitchance::any;
+        result.is_valid = false;
+        return result;
+    }
+
+    // CRITICAL: Check fog of war status
+    float current_time = g_sdk->clock_facade->get_game_time();
+    FogOfWarTracker::update_visibility(obj, current_time);
+
+    auto [should_predict, fog_confidence_multiplier] = FogOfWarTracker::should_predict_target(obj, current_time);
+
+    if (!should_predict)
+    {
+        // Target is in fog for too long - don't cast at stale position
+        PredictionTelemetry::TelemetryLogger::log_rejection_fog();
+        result.hitchance = pred_sdk::hitchance::any;
+        result.is_valid = false;
+        return result;
+    }
+
+    // Start telemetry timing
+    auto telemetry_start = std::chrono::high_resolution_clock::now();
 
     // Use hybrid prediction system
     HybridPred::HybridPredictionResult hybrid_result =
         HybridPred::PredictionManager::predict(spell_data.source, obj, spell_data);
 
-    // DEBUG: Log prediction details
-    char debug_msg[256];
-    sprintf_s(debug_msg, "[Danny.Prediction] Target: %s | Valid: %s | HitChance: %.2f",
-        obj->get_char_name().c_str(),
-        hybrid_result.is_valid ? "YES" : "NO",
-        hybrid_result.hit_chance);
-    g_sdk->log_console(debug_msg);
+    // End telemetry timing
+    auto telemetry_end = std::chrono::high_resolution_clock::now();
+    float computation_time_ms = std::chrono::duration<float, std::milli>(telemetry_end - telemetry_start).count();
+
+    // FIXED: Safe debug logging for prediction details
+    if (PredictionSettings::get().enable_debug_logging)
+    {
+        std::stringstream ss;
+        ss << "[Danny.Prediction] Target: " << obj->get_char_name()
+            << " | Valid: " << (hybrid_result.is_valid ? "YES" : "NO")
+            << " | HitChance: " << (hybrid_result.hit_chance * 100.f) << "% (" << hybrid_result.hit_chance << " raw)";
+        g_sdk->log_console(ss.str().c_str());
+    }
 
     if (!hybrid_result.is_valid)
     {
-        if (!hybrid_result.reasoning.empty())
+        if (!hybrid_result.reasoning.empty() && PredictionSettings::get().enable_debug_logging)
         {
-            sprintf_s(debug_msg, "[Danny.Prediction] Reason invalid: %s", hybrid_result.reasoning.c_str());
-            g_sdk->log_console(debug_msg);
+            std::string debug_msg = "[Danny.Prediction] Reason invalid: " + hybrid_result.reasoning;
+            g_sdk->log_console(debug_msg.c_str());
         }
+
+        // Log invalid prediction to telemetry
+        if (PredictionSettings::get().enable_telemetry)
+        {
+            PredictionTelemetry::TelemetryLogger::log_invalid_prediction(hybrid_result.reasoning);
+        }
+
         result.hitchance = pred_sdk::hitchance::any;
         return result;
     }
@@ -111,11 +262,70 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     // Convert hybrid result to pred_data
     result = convert_to_pred_data(hybrid_result, obj, spell_data);
 
-    // DEBUG: Log final hitchance
-    sprintf_s(debug_msg, "[Danny.Prediction] Final enum hitchance: %d (thresh >= %d?)",
-        static_cast<int>(result.hitchance),
-        spell_data.expected_hitchance);
-    g_sdk->log_console(debug_msg);
+    // Apply fog of war confidence penalty
+    if (fog_confidence_multiplier < 1.0f)
+    {
+        // Reduce hit chance for targets in fog
+        float original_hc = hybrid_result.hit_chance;
+        hybrid_result.hit_chance *= fog_confidence_multiplier;
+
+        // Re-convert to enum with reduced hit chance
+        result.hitchance = convert_hit_chance_to_enum(hybrid_result.hit_chance);
+
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            char fog_msg[256];
+            snprintf(fog_msg, sizeof(fog_msg),
+                "[Danny.Prediction] FOG PENALTY: HC %.0f%% -> %.0f%% (multiplier: %.2f)",
+                original_hc * 100.f, hybrid_result.hit_chance * 100.f, fog_confidence_multiplier);
+            g_sdk->log_console(fog_msg);
+        }
+    }
+
+    // DEFENSIVE PROGRAMMING: Enforce hitchance threshold at SDK level
+    // This protects against buggy champion scripts that don't check hitchance properly
+    bool should_cast = (result.hitchance >= spell_data.expected_hitchance);
+
+    if (!should_cast)
+    {
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            char reject_msg[256];
+            snprintf(reject_msg, sizeof(reject_msg),
+                "[REJECT] Hitchance %d below threshold %d - invalidating prediction",
+                result.hitchance, spell_data.expected_hitchance);
+            g_sdk->log_console(reject_msg);
+        }
+        PredictionTelemetry::TelemetryLogger::log_rejection_hitchance();
+        result.is_valid = false;
+        result.hitchance = pred_sdk::hitchance::any;
+        return result;
+    }
+
+    // CRITICAL: Validate predicted position is within spell range
+    // This prevents casting at targets that will walk out of range
+    float predicted_distance = result.cast_position.distance(source_pos);
+
+    // For linear skillshots, add radius as buffer since we can hit along the path
+    // For circular, be more strict since we need to reach the center
+    float range_buffer = (spell_data.spell_type == pred_sdk::spell_type::linear) ? spell_data.radius : 25.f;
+    float effective_range = spell_data.range + range_buffer;
+
+    if (predicted_distance > effective_range)
+    {
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            char range_msg[256];
+            snprintf(range_msg, sizeof(range_msg),
+                "[REJECT] Predicted position out of range: %.0f > %.0f (range:%.0f + buffer:%.0f)",
+                predicted_distance, effective_range, spell_data.range, range_buffer);
+            g_sdk->log_console(range_msg);
+        }
+        PredictionTelemetry::TelemetryLogger::log_rejection_predicted_range();
+        result.is_valid = false;
+        result.hitchance = pred_sdk::hitchance::any;
+        return result;
+    }
 
     // Check collision if required
     if (!spell_data.forbidden_collisions.empty())
@@ -123,14 +333,73 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         pred_sdk::collision_ret collision = collides(result.cast_position, spell_data, obj);
         if (collision.collided)
         {
-            // Reduce hitchance if collision detected
-            if (result.hitchance > pred_sdk::hitchance::low)
-            {
-                result.hitchance = static_cast<pred_sdk::hitchance>(
-                    static_cast<int>(result.hitchance) - 20
-                    );
-            }
+            // CRITICAL: For non-piercing skillshots, ANY collision invalidates the prediction
+            PredictionTelemetry::TelemetryLogger::log_rejection_collision();
+            result.is_valid = false;
+            result.hitchance = pred_sdk::hitchance::any;
+            return result;
         }
+    }
+
+    // Log successful prediction to telemetry
+    if (PredictionSettings::get().enable_telemetry)
+    {
+        PredictionTelemetry::PredictionEvent event;
+        event.timestamp = g_sdk->clock_facade->get_game_time();
+        event.target_name = obj->get_char_name();
+
+        // Map spell type enum to string
+        switch (spell_data.spell_type)
+        {
+        case pred_sdk::spell_type::linear: event.spell_type = "linear"; break;
+        case pred_sdk::spell_type::circular: event.spell_type = "circular"; break;
+        case pred_sdk::spell_type::targetted: event.spell_type = "targeted"; break;
+        case pred_sdk::spell_type::vector: event.spell_type = "vector"; break;
+        default: event.spell_type = "unknown"; break;
+        }
+
+        event.hit_chance = hybrid_result.hit_chance;
+        event.confidence = hybrid_result.confidence_score;
+        event.distance = spell_data.source->get_position().distance(obj->get_position());
+        event.computation_time_ms = computation_time_ms;
+
+        // Spell configuration data (for diagnosing misconfigured spells)
+        event.spell_range = spell_data.range;
+        event.spell_radius = spell_data.radius;
+        event.spell_delay = spell_data.delay;
+        event.spell_speed = spell_data.projectile_speed;
+
+        // Movement and prediction offset data
+        math::vector3 current_pos = obj->get_position();
+        math::vector3 predicted_pos = result.cast_position;
+        event.prediction_offset = predicted_pos.distance(current_pos);
+        event.target_velocity = obj->get_move_speed();
+
+        // Check if target is moving by examining path
+        auto path = obj->get_path();
+        event.target_is_moving = (path.size() > 1);
+
+        // Extract edge case info from reasoning
+        if (hybrid_result.reasoning.find("STASIS") != std::string::npos)
+            event.edge_case = "stasis";
+        else if (hybrid_result.reasoning.find("CHANNEL") != std::string::npos ||
+            hybrid_result.reasoning.find("RECALL") != std::string::npos)
+            event.edge_case = "channeling";
+        else if (hybrid_result.reasoning.find("DASH") != std::string::npos)
+        {
+            event.edge_case = "dash";
+            event.was_dash = true;
+        }
+        else
+            event.edge_case = "normal";
+
+        // Check for stationary/animation lock
+        event.was_stationary = hybrid_result.reasoning.find("STATIONARY") != std::string::npos;
+        event.was_animation_locked = hybrid_result.reasoning.find("animation") != std::string::npos ||
+            hybrid_result.reasoning.find("LOCKED") != std::string::npos;
+        event.collision_detected = false;  // Will be updated if collision check fails
+
+        PredictionTelemetry::TelemetryLogger::log_prediction(event);
     }
 
     return result;
@@ -288,8 +557,9 @@ float CustomPredictionSDK::CustomPredictionUtils::get_spell_escape_time(
     float distance_to_escape = spell_range - current_distance;
     float move_speed = target->get_move_speed();
 
+    // FIXED: Guard against zero/very low move speed (CC'd, dead, etc.)
     if (move_speed < 1.f)
-        return std::numeric_limits<float>::max();
+        return std::numeric_limits<float>::max(); // Effectively can't escape
 
     return distance_to_escape / move_speed;
 }
@@ -350,12 +620,29 @@ pred_sdk::hitchance CustomPredictionSDK::convert_hit_chance_to_enum(float hit_ch
 game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& spell_data)
 {
     if (!spell_data.source || !spell_data.source->is_valid())
+    {
+        if (PredictionSettings::get().enable_debug_logging)
+            g_sdk->log_console("[Danny.Prediction] get_best_target: Invalid source");
         return nullptr;
+    }
 
-    // Use target selector if available
+    // Try target selector first if available
+    game_object* ts_target = nullptr;
     if (sdk::target_selector)
     {
-        return sdk::target_selector->get_hero_target();
+        ts_target = sdk::target_selector->get_hero_target();
+
+        // If target selector returned a valid target in range, use it
+        if (ts_target && ts_target->is_valid() && !ts_target->is_dead())
+        {
+            float distance = ts_target->get_position().distance(spell_data.source->get_position());
+            if (distance <= spell_data.range + 200.f)
+            {
+                if (PredictionSettings::get().enable_debug_logging)
+                    g_sdk->log_console("[Danny.Prediction] Using TS target");
+                return ts_target;
+            }
+        }
     }
 
     // Fallback: Find best target based on hybrid prediction score
@@ -363,6 +650,7 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
     float best_score = -1.f;
 
     auto all_heroes = g_sdk->object_manager->get_heroes();
+
     for (auto* hero : all_heroes)
     {
         if (!hero || !hero->is_valid() || hero->is_dead() || hero->get_team_id() == spell_data.source->get_team_id())
@@ -417,7 +705,11 @@ float CustomPredictionSDK::calculate_target_score(
 
     // Prioritize closer targets
     float distance = target->get_position().distance(spell_data.source->get_position());
-    float distance_factor = 1.f - std::min(distance / spell_data.range, 1.f);
+    float distance_factor = 0.f;
+    if (spell_data.range > 0.f)
+    {
+        distance_factor = 1.f - std::min(distance / spell_data.range, 1.f);
+    }
     score *= (0.7f + distance_factor * 0.3f);
 
     return score;
@@ -435,6 +727,7 @@ bool CustomPredictionSDK::check_collision_simple(
         if (collision_type == pred_sdk::collision_type::unit)
         {
             auto minions = g_sdk->object_manager->get_minions();
+
             for (auto* minion : minions)
             {
                 if (!minion || minion == target_obj)
@@ -443,7 +736,18 @@ bool CustomPredictionSDK::check_collision_simple(
                 if (!is_collision_object(minion, spell_data))
                     continue;
 
-                // Simple point-to-line distance check
+                // Only ENEMY minions block skillshots
+                if (minion->get_team_id() == spell_data.source->get_team_id())
+                    continue;
+
+                // Skip wards
+                std::string name = minion->get_char_name();
+                if (name.find("Ward") != std::string::npos ||
+                    name.find("Trinket") != std::string::npos ||
+                    name.find("YellowTrinket") != std::string::npos)
+                    continue;
+
+                // Point-to-line distance check
                 math::vector3 minion_pos = minion->get_position();
                 math::vector3 line_dir = (end - start).normalized();
                 math::vector3 to_minion = minion_pos - start;
@@ -458,18 +762,25 @@ bool CustomPredictionSDK::check_collision_simple(
                 float distance = minion_pos.distance(closest_point);
 
                 if (distance <= spell_data.radius + minion->get_bounding_radius())
-                    return true;
+                {
+                    return true;  // Collision detected
+                }
             }
         }
         else if (collision_type == pred_sdk::collision_type::hero)
         {
             auto heroes = g_sdk->object_manager->get_heroes();
+
             for (auto* hero : heroes)
             {
                 if (!hero || hero == target_obj || hero == spell_data.source)
                     continue;
 
                 if (!is_collision_object(hero, spell_data))
+                    continue;
+
+                // Only ENEMY heroes block skillshots
+                if (hero->get_team_id() == spell_data.source->get_team_id())
                     continue;
 
                 math::vector3 hero_pos = hero->get_position();
@@ -486,7 +797,9 @@ bool CustomPredictionSDK::check_collision_simple(
                 float distance = hero_pos.distance(closest_point);
 
                 if (distance <= spell_data.radius + hero->get_bounding_radius())
-                    return true;
+                {
+                    return true;  // Collision detected
+                }
             }
         }
         // Terrain collision skipped - would need navmesh API
