@@ -731,10 +731,10 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
         // Calculate score
         float score = calculate_target_score(hero, spell_data);
 
-        // BONUS: Strongly prefer targets currently in range over buffer-zone targets
+        // BONUS: Small preference for targets currently in range (tiebreaker, not override)
         if (distance <= spell_data.range)
         {
-            score *= 1.5f;  // 50% bonus for in-range targets
+            score *= 1.15f;  // 15% bonus - allows high hitchance buffer targets to still win
         }
 
         if (score > best_score)
