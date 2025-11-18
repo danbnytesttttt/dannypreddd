@@ -1472,7 +1472,9 @@ namespace HybridPred
 
         // Weighted geometric fusion (trust physics more when behavior samples are sparse)
         size_t sample_count = tracker.get_history().size();
-        result.hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count);
+        float current_time = g_sdk->clock_facade->get_game_time();
+        float time_since_update = current_time - tracker.get_last_update_time();
+        result.hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count, time_since_update);
 
         // Clamp to [0, 1]
         result.hit_chance = std::clamp(result.hit_chance, 0.f, 1.f);
@@ -1813,47 +1815,92 @@ namespace HybridPred
         float capsule_length = spell.range;
         float capsule_radius = spell.radius;
 
-        // For linear spells, cast position is the source position (spell shoots in direction)
-        // But we need to find optimal direction
+        // For linear spells, find optimal direction using angular search
+        // Test multiple angles (±10°) around the predicted center to maximize hit probability
         math::vector3 to_center = reachable_region.center - source->get_position();
         float dist_to_center = to_center.magnitude();
 
-        math::vector3 optimal_direction;
+        math::vector3 base_direction;
         if (dist_to_center > MIN_SAFE_DISTANCE)
         {
-            optimal_direction = to_center / dist_to_center;  // Safe manual normalize
+            base_direction = to_center / dist_to_center;  // Safe manual normalize
         }
         else
         {
-            optimal_direction = direction;  // Fallback to target direction
+            base_direction = direction;  // Fallback to target direction
+        }
+
+        // Angular optimization: Test ±10° around base direction
+        constexpr int NUM_ANGLE_TESTS = 7;  // Test: -10°, -6.67°, -3.33°, 0°, +3.33°, +6.67°, +10°
+        constexpr float MAX_ANGLE_DEVIATION = 10.f * (PI / 180.f);  // ±10° in radians
+
+        float best_hit_chance = 0.f;
+        math::vector3 optimal_direction = base_direction;
+        float best_physics_prob = 0.f;
+        float best_behavior_prob = 0.f;
+
+        for (int i = 0; i < NUM_ANGLE_TESTS; ++i)
+        {
+            // Calculate angle offset from -MAX_ANGLE_DEVIATION to +MAX_ANGLE_DEVIATION
+            float angle_offset = (i - NUM_ANGLE_TESTS / 2) * (2.f * MAX_ANGLE_DEVIATION / (NUM_ANGLE_TESTS - 1));
+
+            // Rotate base_direction around Y axis by angle_offset
+            // Using 2D rotation in XZ plane (Y is up in League)
+            float cos_angle = std::cos(angle_offset);
+            float sin_angle = std::sin(angle_offset);
+            math::vector3 test_direction(
+                base_direction.x * cos_angle - base_direction.z * sin_angle,
+                base_direction.y,
+                base_direction.x * sin_angle + base_direction.z * cos_angle
+            );
+
+            // Compute hit probability for this angle
+            float test_physics_prob = compute_capsule_reachability_overlap(
+                capsule_start,
+                test_direction,
+                capsule_length,
+                capsule_radius,
+                reachable_region
+            );
+
+            float test_behavior_prob = compute_capsule_behavior_probability(
+                capsule_start,
+                test_direction,
+                capsule_length,
+                capsule_radius,
+                behavior_pdf
+            );
+
+            // Fuse probabilities to get overall hit chance
+            float test_hit_chance = fuse_probabilities(
+                test_physics_prob,
+                test_behavior_prob,
+                confidence,
+                tracker.get_history().size(),
+                time_since_update
+            );
+
+            // Track best configuration
+            if (test_hit_chance > best_hit_chance)
+            {
+                best_hit_chance = test_hit_chance;
+                optimal_direction = test_direction;
+                best_physics_prob = test_physics_prob;
+                best_behavior_prob = test_behavior_prob;
+            }
         }
 
         result.cast_position = source->get_position() + optimal_direction * capsule_length;
 
-        // Step 6: Compute hit probabilities for capsule
-        float physics_prob = compute_capsule_reachability_overlap(
-            capsule_start,
-            optimal_direction,
-            capsule_length,
-            capsule_radius,
-            reachable_region
-        );
-
-        float behavior_prob = compute_capsule_behavior_probability(
-            capsule_start,
-            optimal_direction,
-            capsule_length,
-            capsule_radius,
-            behavior_pdf
-        );
+        // Use best probabilities found
+        float physics_prob = best_physics_prob;
+        float behavior_prob = best_behavior_prob;
 
         result.physics_contribution = physics_prob;
         result.behavior_contribution = behavior_prob;
 
-        // Weighted geometric fusion (trust physics more when behavior samples are sparse)
-        size_t sample_count = tracker.get_history().size();
-        result.hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count);
-        result.hit_chance = std::clamp(result.hit_chance, 0.f, 1.f);
+        // Use best hit chance from angular optimization
+        result.hit_chance = std::clamp(best_hit_chance, 0.f, 1.f);
 
 #if HYBRID_PRED_ENABLE_REASONING
         // Generate mathematical reasoning
@@ -1974,6 +2021,8 @@ namespace HybridPred
         // Step 5: Optimize vector orientation
         // Test multiple orientations to find best two-position configuration
         size_t sample_count = tracker.get_history().size();
+        float current_time = g_sdk->clock_facade->get_game_time();
+        float time_since_update = current_time - tracker.get_last_update_time();
         VectorConfiguration best_config = optimize_vector_orientation(
             source,
             reachable_region.center,
@@ -1981,7 +2030,8 @@ namespace HybridPred
             behavior_pdf,
             spell,
             confidence,
-            sample_count
+            sample_count,
+            time_since_update
         );
 
         // Step 6: Set result from best configuration
@@ -2122,7 +2172,9 @@ namespace HybridPred
 
         // Weighted geometric fusion (trust physics more when behavior samples are sparse)
         size_t sample_count = tracker.get_history().size();
-        result.hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count);
+        float current_time = g_sdk->clock_facade->get_game_time();
+        float time_since_update = current_time - tracker.get_last_update_time();
+        result.hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count, time_since_update);
         result.hit_chance = std::clamp(result.hit_chance, 0.f, 1.f);
 
 #if HYBRID_PRED_ENABLE_REASONING
@@ -2385,7 +2437,8 @@ namespace HybridPred
         const BehaviorPDF& behavior_pdf,
         const pred_sdk::spell_data& spell,
         float confidence,
-        size_t sample_count)
+        size_t sample_count,
+        float time_since_update)
     {
         /**
          * Vector Spell Optimization Algorithm
@@ -2486,7 +2539,7 @@ namespace HybridPred
             );
 
             // Weighted geometric fusion (trust physics more when behavior samples are sparse)
-            float hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count);
+            float hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count, time_since_update);
 
             // Update best configuration
             if (hit_chance > best_config.hit_chance)

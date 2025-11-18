@@ -109,9 +109,9 @@ namespace HybridPred
      * When behavior data is sparse, trust physics more. When abundant, blend equally.
      *
      * Formula: P = physics^w × behavior^(1-w) × confidence
-     * where w = physics weight based on sample quality
+     * where w = physics weight based on sample quality and staleness
      */
-    inline float fuse_probabilities(float physics_prob, float behavior_prob, float confidence, size_t sample_count)
+    inline float fuse_probabilities(float physics_prob, float behavior_prob, float confidence, size_t sample_count, float time_since_update = 0.f)
     {
         // Determine fusion weight based on behavior sample quality
         float physics_weight = 0.5f;  // Default: equal weight
@@ -133,6 +133,16 @@ namespace HybridPred
         {
             // Abundant data: trust behavior more (physics weight = 0.3)
             physics_weight = 0.3f;
+        }
+
+        // Staleness detection: If velocity data hasn't updated recently, increase physics weight
+        // This handles cases where behavior tracker has stale data (target in fog, networking issues, etc.)
+        if (time_since_update > 0.5f)
+        {
+            // Ramp physics weight up based on staleness
+            // 0.5s → +0.1, 1.0s → +0.2, 1.5s+ → +0.3 (capped at 0.8 total)
+            float staleness_penalty = std::min(time_since_update - 0.5f, 1.0f) * 0.3f;
+            physics_weight = std::min(physics_weight + staleness_penalty, 0.8f);
         }
 
         // Weighted geometric mean
@@ -344,6 +354,9 @@ namespace HybridPred
 
         // Get current velocity
         math::vector3 get_current_velocity() const;
+
+        // Get last update time (for staleness detection)
+        float get_last_update_time() const { return last_update_time_; }
 
         // Opportunistic casting - get or create window for spell slot
         OpportunityWindow& get_opportunity_window(int spell_slot) const;
@@ -648,7 +661,8 @@ namespace HybridPred
             const BehaviorPDF& behavior_pdf,
             const pred_sdk::spell_data& spell,
             float confidence,
-            size_t sample_count
+            size_t sample_count,
+            float time_since_update = 0.f
         );
 
         // Opportunistic casting - update result with opportunity signals
