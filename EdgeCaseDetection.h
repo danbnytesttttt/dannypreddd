@@ -379,62 +379,68 @@ namespace EdgeCases
 
     /**
      * Detect active windwalls that can block projectiles
+     * FIXED: Uses get_heroes() with manual team filtering
      */
     inline std::vector<WindwallInfo> detect_windwalls()
     {
         std::vector<WindwallInfo> windwalls;
 
-        // NOTE: Disabled due to SDK API compatibility
-        // get_enemy_heroes() may not exist or return different type in your SDK
-        // TODO: Update with correct SDK API once known
-        return windwalls;
-
-        /* ORIGINAL CODE - DISABLED
         if (!g_sdk || !g_sdk->object_manager)
             return windwalls;
 
-        auto enemies = g_sdk->object_manager->get_enemy_heroes();
-        for (auto* enemy : enemies)
+        auto* local_player = g_sdk->object_manager->get_local_player();
+        if (!local_player || !local_player->is_valid())
+            return windwalls;
+
+        int local_team = local_player->get_team_id();
+
+        // Get all heroes and filter manually by team
+        auto heroes = g_sdk->object_manager->get_heroes();
+        for (auto* hero : heroes)
         {
-            if (!enemy || !enemy->is_valid())
+            if (!hero || !hero->is_valid() || hero->is_dead())
+                continue;
+
+            // Skip allies - only check enemies
+            if (hero->get_team_id() == local_team)
                 continue;
 
             // Yasuo Windwall
             std::string yasuo_buff = "yasuowmovingwall";
-            auto yasuo_wall = enemy->get_buff_by_name(yasuo_buff);
+            auto yasuo_wall = hero->get_buff_by_name(yasuo_buff);
             if (yasuo_wall && yasuo_wall->is_active())
             {
                 WindwallInfo wall;
                 wall.exists = true;
-                wall.position = enemy->get_position();  // Approximate
+                wall.position = hero->get_position();  // Note: Ideally particle position, but hero pos is acceptable fallback
                 wall.width = 300.f;  // Yasuo wall width
                 wall.end_time = yasuo_wall->get_end_time();
                 wall.source_champion = "yasuo";
                 windwalls.push_back(wall);
             }
 
-            // Samira Windwall
+            // Samira Blade Whirl
             std::string samira_buff = "samiraw";
-            auto samira_wall = enemy->get_buff_by_name(samira_buff);
+            auto samira_wall = hero->get_buff_by_name(samira_buff);
             if (samira_wall && samira_wall->is_active())
             {
                 WindwallInfo wall;
                 wall.exists = true;
-                wall.position = enemy->get_position();
+                wall.position = hero->get_position();
                 wall.width = 325.f;  // Samira wall radius
                 wall.end_time = samira_wall->get_end_time();
                 wall.source_champion = "samira";
                 windwalls.push_back(wall);
             }
 
-            // Braum Shield (blocks first projectile)
+            // Braum Unbreakable (blocks first projectile)
             std::string braum_buff = "braume";
-            auto braum_shield = enemy->get_buff_by_name(braum_buff);
+            auto braum_shield = hero->get_buff_by_name(braum_buff);
             if (braum_shield && braum_shield->is_active())
             {
                 WindwallInfo wall;
                 wall.exists = true;
-                wall.position = enemy->get_position();
+                wall.position = hero->get_position();
                 wall.width = 200.f;  // Braum shield width
                 wall.end_time = braum_shield->get_end_time();
                 wall.source_champion = "braum";
@@ -443,8 +449,6 @@ namespace EdgeCases
         }
 
         return windwalls;
-        */
-        // END DISABLED CODE
     }
 
     /**
