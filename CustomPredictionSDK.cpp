@@ -654,14 +654,61 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
 
         if (ts_target)
         {
-            if (PredictionSettings::get().enable_debug_logging)
+            float distance = ts_target->get_position().distance(spell_data.source->get_position());
+
+            // If target is currently in ability range, accept immediately
+            if (distance <= spell_data.range)
             {
-                float distance = ts_target->get_position().distance(spell_data.source->get_position());
-                char debug[256];
-                sprintf_s(debug, "[Danny.Prediction] Using TS filtered target at %.0f units", distance);
-                g_sdk->log_console(debug);
+                if (PredictionSettings::get().enable_debug_logging)
+                {
+                    char debug[256];
+                    sprintf_s(debug, "[Danny.Prediction] Using TS target at %.0f units (in range)", distance);
+                    g_sdk->log_console(debug);
+                }
+                return ts_target;
             }
-            return ts_target;
+
+            // Target is in buffer zone (between range and search_range)
+            // Only accept if they're moving toward us (buffer is for incoming enemies)
+            if (spell_data.range < 2500.f)  // Only check for tactical spells with buffer
+            {
+                auto path = ts_target->get_path();
+                if (path.size() > 1)
+                {
+                    // Check if target is moving toward us
+                    math::vector3 current_pos = ts_target->get_position();
+                    math::vector3 next_waypoint = path[1];
+                    math::vector3 source_pos = spell_data.source->get_position();
+
+                    float current_distance = current_pos.distance(source_pos);
+                    float next_distance = next_waypoint.distance(source_pos);
+
+                    if (next_distance < current_distance)
+                    {
+                        // Moving toward us - accept
+                        if (PredictionSettings::get().enable_debug_logging)
+                        {
+                            char debug[256];
+                            sprintf_s(debug, "[Danny.Prediction] Using TS target at %.0f units (moving into range)", distance);
+                            g_sdk->log_console(debug);
+                        }
+                        return ts_target;
+                    }
+                }
+
+                // Target is in buffer but not moving toward us - reject, search for closer target
+                if (PredictionSettings::get().enable_debug_logging)
+                {
+                    char debug[256];
+                    sprintf_s(debug, "[Danny.Prediction] TS target at %.0f units not moving into range, searching alternatives", distance);
+                    g_sdk->log_console(debug);
+                }
+            }
+            else
+            {
+                // Global spell - always accept (they're in search range)
+                return ts_target;
+            }
         }
     }
 
@@ -683,6 +730,12 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
 
         // Calculate score
         float score = calculate_target_score(hero, spell_data);
+
+        // BONUS: Strongly prefer targets currently in range over buffer-zone targets
+        if (distance <= spell_data.range)
+        {
+            score *= 1.5f;  // 50% bonus for in-range targets
+        }
 
         if (score > best_score)
         {
