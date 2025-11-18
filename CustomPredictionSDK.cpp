@@ -626,18 +626,30 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
         return nullptr;
     }
 
+    // Calculate search range: Tactical vs Global spells
+    // TACTICAL (< 2500): Add buffer for enemies walking into range
+    // GLOBAL (>= 2500): Use full range, let hitchance filter bad shots
+    float search_range = spell_data.range;
+    if (spell_data.range < 2500.f)
+    {
+        // Add buffer scaled to spell range, capped at 300 units
+        // Example: 1000 range spell gets +300 buffer = 1300 search range
+        //          500 range spell gets +250 buffer = 750 search range
+        float buffer = std::min(spell_data.range * 0.5f, 300.f);
+        search_range = spell_data.range + buffer;
+    }
+    // else: Global spell - use full range (Jinx R 25000, Ashe R 20000, etc.)
+
     // Use SDK target selector with range filter - let it handle priority/threat logic
     if (sdk::target_selector)
     {
-        // FIXED: Pass filter to target selector instead of manually overriding it
-        // TS handles priority (threat, HP, user settings) - we just constrain to spell range
+        // Pass filter to target selector - TS handles priority, we constrain range
         auto* ts_target = sdk::target_selector->get_hero_target([&](game_object* obj) -> bool {
             if (!obj || !obj->is_valid() || obj->is_dead())
                 return false;
 
-            // Only consider targets in actual spell range (no proximity override needed)
             float distance = obj->get_position().distance(spell_data.source->get_position());
-            return distance <= spell_data.range;
+            return distance <= search_range;
         });
 
         if (ts_target)
@@ -666,7 +678,7 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
 
         // Check range (same as TS filter for consistency)
         float distance = hero->get_position().distance(spell_data.source->get_position());
-        if (distance > spell_data.range)
+        if (distance > search_range)
             continue;
 
         // Calculate score
