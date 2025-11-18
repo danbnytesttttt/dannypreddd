@@ -1797,6 +1797,11 @@ namespace HybridPred
         float confidence = compute_confidence_score(source, target, spell, tracker, edge_cases);
         result.confidence_score = confidence;
 
+        // Compute staleness for fusion
+        float current_time = g_sdk->clock_facade->get_game_time();
+        float time_since_update = current_time - tracker.get_last_update_time();
+        size_t sample_count = tracker.get_history().size();
+
         // Step 5: Compute capsule parameters
         // Linear spell = capsule from source toward target
         math::vector3 to_target = target->get_position() - source->get_position();
@@ -1876,7 +1881,7 @@ namespace HybridPred
                 test_physics_prob,
                 test_behavior_prob,
                 confidence,
-                tracker.get_history().size(),
+                sample_count,
                 time_since_update
             );
 
