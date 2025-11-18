@@ -626,37 +626,30 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
         return nullptr;
     }
 
-    // Try target selector first if available, but only if CLOSE
-    game_object* ts_target = nullptr;
+    // Use SDK target selector with range filter - let it handle priority/threat logic
     if (sdk::target_selector)
     {
-        ts_target = sdk::target_selector->get_hero_target();
+        // FIXED: Pass filter to target selector instead of manually overriding it
+        // TS handles priority (threat, HP, user settings) - we just constrain to spell range
+        auto* ts_target = sdk::target_selector->get_hero_target([&](game_object* obj) -> bool {
+            if (!obj || !obj->is_valid() || obj->is_dead())
+                return false;
 
-        // FIXED: Only use TS target if they're ACTUALLY NEARBY (not just in spell range)
-        if (ts_target && ts_target->is_valid() && !ts_target->is_dead())
+            // Only consider targets in actual spell range (no proximity override needed)
+            float distance = obj->get_position().distance(spell_data.source->get_position());
+            return distance <= spell_data.range;
+        });
+
+        if (ts_target)
         {
-            float distance = ts_target->get_position().distance(spell_data.source->get_position());
-
-            // CRITICAL: Proximity check to avoid targeting mid lane from bot lane
-            // Only auto-accept TS target if within reasonable proximity (1.5x spell range OR 1500 units max)
-            float proximity_threshold = std::min(spell_data.range * 1.5f, 1500.f);
-
-            if (distance <= proximity_threshold)
+            if (PredictionSettings::get().enable_debug_logging)
             {
-                if (PredictionSettings::get().enable_debug_logging)
-                {
-                    char debug[256];
-                    sprintf_s(debug, "[Danny.Prediction] Using TS target at %.0f units (threshold: %.0f)", distance, proximity_threshold);
-                    g_sdk->log_console(debug);
-                }
-                return ts_target;
-            }
-            else if (PredictionSettings::get().enable_debug_logging)
-            {
+                float distance = ts_target->get_position().distance(spell_data.source->get_position());
                 char debug[256];
-                sprintf_s(debug, "[Danny.Prediction] TS target too far (%.0f > %.0f), searching nearby", distance, proximity_threshold);
+                sprintf_s(debug, "[Danny.Prediction] Using TS filtered target at %.0f units", distance);
                 g_sdk->log_console(debug);
             }
+            return ts_target;
         }
     }
 
@@ -671,9 +664,9 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
         if (!hero || !hero->is_valid() || hero->is_dead() || hero->get_team_id() == spell_data.source->get_team_id())
             continue;
 
-        // Check range
+        // Check range (same as TS filter for consistency)
         float distance = hero->get_position().distance(spell_data.source->get_position());
-        if (distance > spell_data.range + 200.f) // Add buffer
+        if (distance > spell_data.range)
             continue;
 
         // Calculate score
