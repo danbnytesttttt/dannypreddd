@@ -560,6 +560,11 @@ namespace PredictionTelemetry
                 stats_.total_predictions);
             g_sdk->log_console(buf);
             g_sdk->log_console("=============================================================================");
+
+            // CRITICAL: Clear events to prevent memory leak
+            // Without this, events_ grows unbounded in long games (can reach hundreds of MB)
+            events_.clear();
+            events_.shrink_to_fit();  // Release memory back to OS
         }
     };
 

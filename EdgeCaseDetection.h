@@ -379,10 +379,20 @@ namespace EdgeCases
 
     /**
      * Detect active windwalls that can block projectiles
-     * FIXED: Uses get_heroes() with manual team filtering
+     *
+     * DISABLED: Cannot accurately track windwall position without particle API
+     * - Yasuo W spawns in front of him and drifts forward
+     * - Using hero position is incorrect (wall != hero location)
+     * - Particle tracking would require complex object iteration
+     *
+     * TODO: Implement proper particle-based detection or remove entirely
      */
     inline std::vector<WindwallInfo> detect_windwalls()
     {
+        // DISABLED - returns empty (no windwall detection)
+        return std::vector<WindwallInfo>();
+
+        /* DISABLED CODE - Geometry broken without particle positions
         std::vector<WindwallInfo> windwalls;
 
         if (!g_sdk || !g_sdk->object_manager)
@@ -412,8 +422,8 @@ namespace EdgeCases
             {
                 WindwallInfo wall;
                 wall.exists = true;
-                wall.position = hero->get_position();  // Note: Ideally particle position, but hero pos is acceptable fallback
-                wall.width = 300.f;  // Yasuo wall width
+                wall.position = hero->get_position();  // BROKEN: Wall spawns in front, not at hero
+                wall.width = 300.f;
                 wall.end_time = yasuo_wall->get_end_time();
                 wall.source_champion = "yasuo";
                 windwalls.push_back(wall);
@@ -427,13 +437,13 @@ namespace EdgeCases
                 WindwallInfo wall;
                 wall.exists = true;
                 wall.position = hero->get_position();
-                wall.width = 325.f;  // Samira wall radius
+                wall.width = 325.f;
                 wall.end_time = samira_wall->get_end_time();
                 wall.source_champion = "samira";
                 windwalls.push_back(wall);
             }
 
-            // Braum Unbreakable (blocks first projectile)
+            // Braum Unbreakable
             std::string braum_buff = "braume";
             auto braum_shield = hero->get_buff_by_name(braum_buff);
             if (braum_shield && braum_shield->is_active())
@@ -441,7 +451,7 @@ namespace EdgeCases
                 WindwallInfo wall;
                 wall.exists = true;
                 wall.position = hero->get_position();
-                wall.width = 200.f;  // Braum shield width
+                wall.width = 200.f;
                 wall.end_time = braum_shield->get_end_time();
                 wall.source_champion = "braum";
                 windwalls.push_back(wall);
@@ -449,6 +459,7 @@ namespace EdgeCases
         }
 
         return windwalls;
+        END DISABLED CODE */
     }
 
     /**

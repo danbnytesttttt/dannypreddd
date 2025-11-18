@@ -188,15 +188,18 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     math::vector3 target_pos = obj->get_position();
     float distance_to_target = target_pos.distance(source_pos);
 
-    // Add 50 unit buffer to account for target movement during cast
-    if (distance_to_target > spell_data.range + 50.f)
+    // FIX: Use target bounding radius dynamically (Cho'Gath = 100+, Malphite = 80, etc.)
+    float target_radius = obj->get_bounding_radius();
+    float effective_max_range = spell_data.range + target_radius + 25.f;  // 25 for buffer
+
+    if (distance_to_target > effective_max_range)
     {
         if (PredictionSettings::get().enable_debug_logging)
         {
             char range_msg[256];
             snprintf(range_msg, sizeof(range_msg),
-                "[Danny.Prediction] Target out of range: %.0f > %.0f - skipping prediction",
-                distance_to_target, spell_data.range);
+                "[Danny.Prediction] Target out of range: %.0f > %.0f (range + radius %.0f)",
+                distance_to_target, effective_max_range, target_radius);
             g_sdk->log_console(range_msg);
         }
         PredictionTelemetry::TelemetryLogger::log_rejection_current_range();
