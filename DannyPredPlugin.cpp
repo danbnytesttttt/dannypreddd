@@ -33,7 +33,7 @@ namespace Prediction
         g_sdk->event_manager->register_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
 
         // Register draw callback for visual indicators
-        g_sdk->event_manager->register_callback(event_manager::event::draw, reinterpret_cast<void*>(on_draw));
+        g_sdk->event_manager->register_callback(event_manager::event::draw_world, reinterpret_cast<void*>(on_draw));
 
         if (PredictionSettings::get().enable_debug_logging)
             g_sdk->log_console("[Danny.Prediction] Loaded - visuals and trackers initialized");
@@ -50,7 +50,7 @@ namespace Prediction
 
         // Unregister callbacks
         g_sdk->event_manager->unregister_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
-        g_sdk->event_manager->unregister_callback(event_manager::event::draw, reinterpret_cast<void*>(on_draw));
+        g_sdk->event_manager->unregister_callback(event_manager::event::draw_world, reinterpret_cast<void*>(on_draw));
 
         // Clean up all subsystems
         HybridPred::PredictionManager::clear();
