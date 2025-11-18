@@ -423,9 +423,12 @@ math::vector3 CustomPredictionSDK::predict_on_path(game_object* obj, float time,
     {
         // Fallback to simple prediction using path
         auto path = obj->get_path();
-        if (!path.empty())
+        if (path.size() > 1)
         {
-            math::vector3 waypoint = path[path.size() - 1];
+            // FIX: Use NEXT immediate waypoint, not final destination
+            // Prevents "corner cutting" through walls on L-shaped paths
+            // path[0] = current pos, path[1] = next corner/waypoint
+            math::vector3 waypoint = path[1];
             math::vector3 direction = (waypoint - position).normalized();
             return position + direction * (obj->get_move_speed() * time);
         }
@@ -522,7 +525,11 @@ bool CustomPredictionSDK::CustomPredictionUtils::is_in_range(
 
     float effective_range = get_spell_range(data, target, data.source);
 
-    return distance <= effective_range;
+    // FIX: Allow small buffer for edge-of-range hits
+    // For linear spells, the hitbox extends beyond the center by spell radius
+    // Example: 1000 range spell with 60 radius can hit at 1060 (edge hit)
+    constexpr float EDGE_HIT_BUFFER = 50.f;
+    return distance <= effective_range + EDGE_HIT_BUFFER;
 }
 
 float CustomPredictionSDK::CustomPredictionUtils::get_spell_hit_time(

@@ -1505,10 +1505,21 @@ namespace HybridPred
             }
             else
             {
-                // Spell arrives AFTER dash ends - predict at endpoint
-                // This will be used by the spell-specific prediction below
-                // We'll continue to normal prediction but with dash adjustments
-                result.reasoning = "Dash endpoint prediction active";
+                // FIX: Spell arrives AFTER dash ends - RETURN ENDPOINT IMMEDIATELY
+                // Don't run physics/behavior on dashing unit - they WILL stop at endpoint
+                // Treat like stasis: guaranteed position, high confidence
+                result.cast_position = edge_cases.dash.dash_end_position;
+                result.hit_chance = 1.0f * edge_cases.dash.confidence_multiplier;
+                result.physics_contribution = 1.0f;
+                result.behavior_contribution = 1.0f;  // Forced movement = 100% predictable
+                result.confidence_score = edge_cases.dash.confidence_multiplier;
+                result.is_valid = true;
+                result.reasoning = "DASH ENDPOINT - Aiming at confirmed stop position after dash completes";
+
+                // Update opportunity signals before returning
+                update_opportunity_signals(result, source, spell, tracker);
+
+                return result;
             }
         }
 
