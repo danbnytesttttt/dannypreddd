@@ -396,6 +396,12 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         event.distance = spell_data.source->get_position().distance(obj->get_position());
         event.computation_time_ms = computation_time_ms;
 
+        // Spell configuration data (for diagnosing misconfigured spells)
+        event.spell_range = spell_data.range;
+        event.spell_radius = spell_data.radius;
+        event.spell_delay = spell_data.delay;
+        event.spell_speed = spell_data.speed;
+
         // Extract edge case info from reasoning
         if (hybrid_result.reasoning.find("STASIS") != std::string::npos)
             event.edge_case = "stasis";

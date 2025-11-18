@@ -35,6 +35,12 @@ namespace PredictionTelemetry
         bool collision_detected = false;
         float computation_time_ms = 0.f;
         std::string edge_case = "normal";  // "stasis", "channeling", "dash", "normal"
+
+        // Spell configuration data (for diagnosing misconfigured spells)
+        float spell_range = 0.f;
+        float spell_radius = 0.f;
+        float spell_delay = 0.f;
+        float spell_speed = 0.f;
     };
 
     struct SessionStats
@@ -304,6 +310,35 @@ namespace PredictionTelemetry
                         pair.first.c_str(), pair.second, avg_hc * 100.f);
                     g_sdk->log_console(buf);
                 }
+            }
+
+            // Spell configuration analysis (helps diagnose misconfigured spells)
+            if (!events_.empty())
+            {
+                g_sdk->log_console("--- SPELL CONFIGURATION ---");
+
+                // Get first event's spell data as representative (assumes same spell used throughout)
+                const auto& first_event = events_.front();
+                snprintf(buf, sizeof(buf), "Range: %.0f | Radius: %.0f | Delay: %.2fs | Speed: %.0f",
+                    first_event.spell_range, first_event.spell_radius,
+                    first_event.spell_delay, first_event.spell_speed);
+                g_sdk->log_console(buf);
+
+                // Calculate spell performance metrics
+                float total_dist = 0.f;
+                float max_dist = 0.f;
+                int range_violations = 0;
+                for (const auto& evt : events_)
+                {
+                    total_dist += evt.distance;
+                    if (evt.distance > max_dist) max_dist = evt.distance;
+                    if (evt.distance > evt.spell_range) range_violations++;
+                }
+                float avg_dist = total_dist / events_.size();
+
+                snprintf(buf, sizeof(buf), "Cast Distance - Avg: %.0f | Max: %.0f | Range Violations: %d",
+                    avg_dist, max_dist, range_violations);
+                g_sdk->log_console(buf);
             }
 
             // Per-target stats (top 10 by prediction count)
