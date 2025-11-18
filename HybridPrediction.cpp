@@ -1020,6 +1020,13 @@ namespace HybridPred
          * - Intuitive: 90% of dodge time needed = 90% physics probability
          * - No arbitrary area ratios
          * - Accounts for human reaction time
+         *
+         * NOTE: Current implementation assumes instant turn rate (valid for League).
+         * Future enhancement: Account for velocity direction when calculating escape time.
+         * If target is moving INTO spell, they need to decelerate then accelerate out:
+         *   time_needed = decel_time + accel_time + (distance / move_speed)
+         * This adds ~20-35% to escape time for targets moving into the spell.
+         * Trade-off: Current simplification acceptable for performance.
          */
 
         // Validate inputs

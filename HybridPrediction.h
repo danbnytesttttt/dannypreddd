@@ -115,9 +115,23 @@ namespace HybridPred
      *
      * Formula: P = physics^w × behavior^(1-w) × confidence
      * where w = physics weight based on sample quality and staleness
+     *
+     * SPECIAL CASE: When physics = 1.0 (physically impossible to dodge),
+     * return guaranteed hit regardless of behavior (flash/dash handled by edge cases)
      */
     inline float fuse_probabilities(float physics_prob, float behavior_prob, float confidence, size_t sample_count, float time_since_update = 0.f)
     {
+        // CRITICAL: Guaranteed hit override
+        // If physics says escape is physically impossible (>= 99%), guarantee the hit
+        // Behavior should NOT reduce this (flash/dash handled by edge case confidence penalties)
+        constexpr float GUARANTEED_THRESHOLD = 0.99f;
+        if (physics_prob >= GUARANTEED_THRESHOLD)
+        {
+            // Physical escape impossible - return guaranteed hit
+            // Still apply confidence for edge cases (flash, spell shield, etc.)
+            return std::min(1.0f, confidence);  // Max 1.0, reduced only by edge cases
+        }
+
         // Determine fusion weight based on behavior sample quality
         float physics_weight = 0.5f;  // Default: equal weight
 
@@ -229,11 +243,17 @@ namespace HybridPred
 
     /**
      * Probability density function for behavior prediction
+     *
+     * NOTE: 32×32 grid with 25u cells provides good balance of performance vs precision.
+     * Future enhancement: Consider dynamic grid resolution based on prediction time:
+     *   - Short predictions (<0.5s): 48×48 or 64×64 for fine-grained juke detection
+     *   - Long predictions (>2s): 32×32 sufficient (broad movement patterns)
+     * Trade-off: 64×64 = 4x memory and computation cost (4096 vs 1024 cells)
      */
     struct BehaviorPDF
     {
         // 2D grid-based PDF (discretized for efficiency)
-        static constexpr int GRID_SIZE = 32;
+        static constexpr int GRID_SIZE = 32;  // 32×32 = 1024 cells, 800×800u coverage
         float cell_size;  // Dynamic cell size (units per cell) - adjusted per prediction
 
         float pdf_grid[GRID_SIZE][GRID_SIZE];
