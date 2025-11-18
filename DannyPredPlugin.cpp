@@ -29,6 +29,10 @@ namespace Prediction
 {
     void LoadPrediction()
     {
+        // CRITICAL: Validate SDK before registering callbacks
+        if (!g_sdk || !g_sdk->event_manager)
+            return;
+
         // Register update callback for tracker updates
         g_sdk->event_manager->register_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
 
@@ -42,22 +46,25 @@ namespace Prediction
     void UnloadPrediction()
     {
         // Write telemetry report before unloading
-        if (PredictionSettings::get().enable_telemetry)
+        if (g_sdk && PredictionSettings::get().enable_telemetry)
         {
             g_sdk->log_console("[Danny.Prediction] ===== SESSION TELEMETRY REPORT =====");
             PredictionTelemetry::TelemetryLogger::write_report();
         }
 
-        // Unregister callbacks
-        g_sdk->event_manager->unregister_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
-        g_sdk->event_manager->unregister_callback(event_manager::event::draw_world, reinterpret_cast<void*>(on_draw));
+        // Unregister callbacks (safe even if SDK is null)
+        if (g_sdk && g_sdk->event_manager)
+        {
+            g_sdk->event_manager->unregister_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
+            g_sdk->event_manager->unregister_callback(event_manager::event::draw_world, reinterpret_cast<void*>(on_draw));
+        }
 
-        // Clean up all subsystems
+        // Clean up all subsystems (always safe to call)
         HybridPred::PredictionManager::clear();
         FogOfWarTracker::clear();
         PredictionVisuals::clear();
 
-        if (PredictionSettings::get().enable_debug_logging)
+        if (g_sdk && PredictionSettings::get().enable_debug_logging)
             g_sdk->log_console("[Danny.Prediction] Unloaded - all subsystems cleared");
     }
 }

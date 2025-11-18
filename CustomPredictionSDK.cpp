@@ -626,9 +626,13 @@ pred_sdk::hitchance CustomPredictionSDK::convert_hit_chance_to_enum(float hit_ch
 
 game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& spell_data)
 {
+    // CRITICAL: Validate SDK before any operations
+    if (!g_sdk || !g_sdk->object_manager)
+        return nullptr;
+
     if (!spell_data.source || !spell_data.source->is_valid())
     {
-        if (PredictionSettings::get().enable_debug_logging)
+        if (PredictionSettings::get().enable_debug_logging && g_sdk)
             g_sdk->log_console("[Danny.Prediction] get_best_target: Invalid source");
         return nullptr;
     }
@@ -808,6 +812,10 @@ bool CustomPredictionSDK::check_collision_simple(
     const pred_sdk::spell_data& spell_data,
     const game_object* target_obj)
 {
+    // CRITICAL: Validate SDK before checking collisions
+    if (!g_sdk || !g_sdk->object_manager)
+        return false;  // No collision if can't check
+
     // Check each collision type
     for (auto collision_type : spell_data.forbidden_collisions)
     {

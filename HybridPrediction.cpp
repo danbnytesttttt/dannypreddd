@@ -1007,8 +1007,9 @@ namespace HybridPred
         float projectile_radius,
         const ReachableRegion& reachable_region)
     {
+        // CRITICAL: Check for zero area - target cannot dodge
         if (reachable_region.area < EPSILON)
-            return 0.f;
+            return 1.0f;  // No dodge time = guaranteed hit
 
         // Compute intersection area between projectile circle and reachable circle
         float intersection_area = circle_circle_intersection_area(
@@ -1068,6 +1069,10 @@ namespace HybridPred
 
         // Distance needed to run to safety
         float distance_to_edge = projectile_radius - distance_to_center;
+
+        // CRITICAL: Check for zero move speed to avoid division by zero
+        if (target_move_speed < EPSILON)
+            return 1.0f;  // Can't move = guaranteed hit
 
         // Time needed to escape
         float time_needed_to_escape = distance_to_edge / target_move_speed;
