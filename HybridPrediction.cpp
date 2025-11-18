@@ -302,11 +302,16 @@ namespace HybridPred
             math::vector3 curr_dir = curr.velocity.normalized();
 
             // Cross product Y component determines left (-1) or right (1)
+            // Higher threshold filters out pathfinding micro-corrections vs intentional dodges
             float cross_y = prev_dir.x * curr_dir.z - prev_dir.z * curr_dir.x;
 
-            if (cross_y > 0.15f)
+            // Threshold: 0.25 ≈ sin(14.5°) filters noise, captures deliberate jukes
+            // Old: 0.15 (~8.5°) was too sensitive, caught micro-adjustments as jukes
+            constexpr float JUKE_THRESHOLD = 0.25f;
+
+            if (cross_y > JUKE_THRESHOLD)
                 dodge_pattern_.juke_sequence.push_back(-1);  // Left
-            else if (cross_y < -0.15f)
+            else if (cross_y < -JUKE_THRESHOLD)
                 dodge_pattern_.juke_sequence.push_back(1);   // Right
             else
                 dodge_pattern_.juke_sequence.push_back(0);   // Straight
