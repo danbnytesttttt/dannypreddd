@@ -909,7 +909,24 @@ namespace HybridPred
         float reaction_time)
     {
         ReachableRegion region;
-        region.center = current_pos;
+
+        // =====================================================================
+        // CRITICAL FIX: Account for INERTIA during reaction time
+        // =====================================================================
+        // Humans don't freeze during reaction time - they continue drifting
+        // in their current direction due to inertia!
+        //
+        // Example: Target moving right at 400 MS, spell lands in 0.5s
+        //   - Reaction time: 0.25s
+        //   - During reaction: Drifts 100 units right (400 * 0.25)
+        //   - Reachable center: current_pos + (100, 0)
+        //   - NOT current_pos!
+        //
+        // Without this: System aims behind moving targets on fast spells
+        // =====================================================================
+        float non_reactive_time = std::min(prediction_time, reaction_time);
+        math::vector3 drift_offset = current_velocity * non_reactive_time;
+        region.center = current_pos + drift_offset;
 
         // CRITICAL FIX: Subtract reaction time from prediction time
         // Humans cannot react instantly - they need 200-300ms to see and respond
@@ -960,11 +977,12 @@ namespace HybridPred
         (void)turn_rate; // Suppress unused parameter warning
 
         // Discretize boundary (circle approximation - full 360° reachability)
+        // Boundary points centered at drift-adjusted position (region.center)
         constexpr int BOUNDARY_POINTS = 32;
         for (int i = 0; i < BOUNDARY_POINTS; ++i)
         {
             float angle = (2.f * PI * i) / BOUNDARY_POINTS;
-            math::vector3 boundary_point = current_pos;
+            math::vector3 boundary_point = region.center;  // Use drift-adjusted center
             boundary_point.x += max_distance * std::cos(angle);
             boundary_point.z += max_distance * std::sin(angle);
             region.boundary_points.push_back(boundary_point);

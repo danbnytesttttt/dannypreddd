@@ -69,18 +69,36 @@ float arrival_time = delay + (distance / projectile_speed)
 
 ---
 
-### 2. Build Reachable Region (Physics) WITH REACTION TIME
-*Location: `HybridPrediction.cpp:895-970`*
+### 2. Build Reachable Region (Physics) WITH REACTION TIME + INERTIA
+*Location: `HybridPrediction.cpp:902-993`*
 
 Computes a **circle** representing all positions the target could physically reach.
 
-**CRITICAL**: We now subtract **human reaction time** (250ms) from available dodge time!
+**CRITICAL FIXES**:
+1. **Reaction Time**: Subtract 250ms from available dodge time
+2. **Inertia**: Center reachable region at drift position, NOT current position!
 
 #### Formula:
 ```cpp
+// INERTIA: Targets don't freeze during reaction time - they drift!
+drift_offset = current_velocity * reaction_time
+region.center = current_pos + drift_offset  // NOT current_pos!
+
+// REACTION TIME: Reduce available dodge time
 effective_dodge_time = arrival_time - HUMAN_REACTION_TIME  // 250ms
 max_radius = move_speed * effective_dodge_time  // (with acceleration)
 ```
+
+#### Why Inertia Matters:
+Targets don't freeze during reaction time - they continue moving due to **inertia**!
+
+**Example**: Target running right at 400 MS, spell lands in 0.5s
+- **Old (Broken)**: Reachable center at current position (0, 0)
+  - Assumes target freezes for 0.25s → unrealistic!
+- **New (Fixed)**: Reachable center at drift position (100, 0)
+  - Target drifts 100 units right (400 * 0.25) before reacting
+
+**Without inertia fix**: System aims behind moving targets on fast spells!
 
 #### Why Reaction Time Matters:
 Humans cannot react instantly - they need ~250ms to:
@@ -88,13 +106,18 @@ Humans cannot react instantly - they need ~250ms to:
 2. **Decide** which direction to dodge (cognitive processing)
 3. **Execute** the movement command (motor response)
 
-#### Example (WITH reaction time):
+#### Example (WITH reaction time + inertia):
 ```cpp
 // Target stats
+current_pos = (0, 0, 0)
 current_velocity = (100, 0, 100)  // magnitude = 141 u/s
 move_speed = 350 u/s
 arrival_time = 2.1s
-REACTION_TIME = 0.25s  // NEW!
+REACTION_TIME = 0.25s
+
+// INERTIA: Drift during reaction time
+drift_offset = (100, 0, 100) * 0.25 = (25, 0, 25)
+region.center = (0, 0, 0) + (25, 0, 25) = (25, 0, 25)  // NOT (0,0,0)!
 
 // Effective dodge time (CRITICAL FIX)
 effective_dodge_time = 2.1 - 0.25 = 1.85s  // 12% less time!
@@ -548,7 +571,29 @@ if (result.hitchance >= spell_data.expected_hitchance)
 - ✅ Physics probabilities increased 2-5x
 - ✅ Fast spells (0.6s arrival) now have high physics prob
 
-#### 3. **Removed Distance Double-Penalty** (10x reduction)
+#### 3. **Inertia During Reaction Time** (CRITICAL)
+
+**Problem**: System assumed targets freeze during reaction time.
+- Reachable center: `current_pos` (assumes target stops moving!)
+- Reality: Target continues drifting in current direction
+
+**Example**: Target moving right at 400 MS, spell lands in 0.5s
+- **Old (Broken)**: Center at (0, 0) → aims behind moving targets!
+- **New (Fixed)**: Center at (100, 0) → accounts for 100 unit drift
+
+**Solution**: Center reachable region at drift-adjusted position.
+```cpp
+drift_offset = current_velocity * reaction_time
+region.center = current_pos + drift_offset  // NOT current_pos!
+```
+
+**Impact**:
+- ✅ Fixes aiming behind moving targets on fast spells
+- ✅ More accurate physics predictions for all moving targets
+- ✅ Especially critical for 0.5-1.0s arrival time spells
+- ✅ Accounts for 50-100+ unit position shifts on fast targets
+
+#### 4. **Removed Distance Double-Penalty** (10x reduction)
 
 **Problem**: Distance penalized twice (physics + confidence).
 
@@ -558,7 +603,7 @@ if (result.hitchance >= spell_data.expected_hitchance)
 - ✅ 1000 unit spell: 40% penalty → 5% penalty
 - ✅ Hit chances increased by 10-15% for long-range
 
-#### 4. **Staleness Detection**
+#### 5. **Staleness Detection**
 
 **Problem**: Fog of war or network lag could leave stale data.
 
