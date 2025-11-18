@@ -1058,6 +1058,62 @@ namespace HybridPred
         if (time_needed_to_escape >= time_available)
             return 1.0f;
 
+        // =====================================================================
+        // TERRAIN BLOCKING DETECTION (Choke Point / Wall Trap Detection)
+        // =====================================================================
+        // Check if target is trapped against walls/terrain by testing escape paths
+        // perpendicular to the spell's aim direction. This significantly improves
+        // accuracy in common scenarios:
+        //   - Jungle fights (narrow paths between walls)
+        //   - Tower dives (wall behind target)
+        //   - River choke points
+        //   - Lane edge positioning
+        //
+        // Logic:
+        //   - Both sides blocked → 1.0 (trapped, guaranteed hit)
+        //   - One side blocked → 1.5x probability (predictable dodge direction)
+        //   - Both sides open → normal probability
+        // =====================================================================
+
+        // Calculate aim direction (from spell center to target)
+        math::vector3 aim_dir = (target_position - cast_position);
+        float aim_magnitude = aim_dir.magnitude();
+
+        if (aim_magnitude > EPSILON)
+        {
+            aim_dir = aim_dir / aim_magnitude;  // Normalize
+
+            // Calculate perpendicular escape directions (left and right)
+            // For 2D plane (y is up in League), perpendicular is rotation in xz plane
+            math::vector3 escape_dir_left(-aim_dir.z, 0.f, aim_dir.x);   // 90° left
+            math::vector3 escape_dir_right(aim_dir.z, 0.f, -aim_dir.x);  // 90° right
+
+            // Calculate escape points (slightly beyond spell edge for safety margin)
+            constexpr float SAFETY_MARGIN = 20.f;  // Extra distance for safe dodging
+            float escape_distance = distance_to_edge + SAFETY_MARGIN;
+
+            math::vector3 escape_point_left = target_position + escape_dir_left * escape_distance;
+            math::vector3 escape_point_right = target_position + escape_dir_right * escape_distance;
+
+            // Check if escape paths are walkable using nav mesh
+            bool can_dodge_left = g_sdk->nav_mesh->is_pathable(escape_point_left);
+            bool can_dodge_right = g_sdk->nav_mesh->is_pathable(escape_point_right);
+
+            // Trapped against wall on both sides = guaranteed hit
+            if (!can_dodge_left && !can_dodge_right)
+            {
+                return 1.0f;  // TRAPPED!
+            }
+
+            // One side blocked = predictable dodge direction
+            // Target MUST dodge to the open side, increasing hit probability
+            if (!can_dodge_left || !can_dodge_right)
+            {
+                float probability = time_needed_to_escape / time_available;
+                return std::clamp(probability * 1.5f, 0.f, 1.f);  // 50% boost
+            }
+        }
+
         // Return ratio: how much of their available time is needed
         // 90% needed = 90% probability they'll be hit
         // 10% needed = 10% probability (they have plenty of time to dodge)
