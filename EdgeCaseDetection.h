@@ -453,6 +453,7 @@ namespace EdgeCases
 
     /**
      * Check if projectile path intersects with any windwall
+     * FIXED: Correct closest point calculation using dot product projection
      */
     inline bool will_hit_windwall(
         const math::vector3& start_pos,
@@ -464,7 +465,7 @@ namespace EdgeCases
             if (!wall.exists)
                 continue;
 
-            // Simple distance check - projectile path near windwall position
+            // Calculate projectile direction vector
             math::vector3 to_target = end_pos - start_pos;
             float distance_to_target = to_target.magnitude();
 
@@ -472,20 +473,24 @@ namespace EdgeCases
             if (distance_to_target < MIN_SAFE_DISTANCE)
                 continue;  // Zero-length path, skip windwall check
 
-            math::vector3 direction = to_target / distance_to_target;  // Safe manual normalize
-            float distance_to_wall = (wall.position - start_pos).magnitude();
+            math::vector3 direction = to_target / distance_to_target;  // Normalized direction
 
-            // If windwall is between source and target
-            if (distance_to_wall < distance_to_target)
+            // FIXED: Project windwall position onto the projectile path using dot product
+            math::vector3 start_to_wall = wall.position - start_pos;
+            float projection = start_to_wall.dot(direction);
+
+            // Clamp projection to line segment [0, distance_to_target]
+            if (projection < 0.f || projection > distance_to_target)
+                continue;  // Windwall is not between start and end
+
+            // Calculate closest point on path and perpendicular distance to windwall
+            math::vector3 closest_point_on_path = start_pos + direction * projection;
+            float perpendicular_distance = (wall.position - closest_point_on_path).magnitude();
+
+            // Check if windwall is close enough to block projectile
+            if (perpendicular_distance < wall.width)
             {
-                // Check if path intersects windwall area
-                math::vector3 closest_point_on_path = start_pos + direction * distance_to_wall;
-                float distance_from_path = (wall.position - closest_point_on_path).magnitude();
-
-                if (distance_from_path < wall.width)
-                {
-                    return true;  // Projectile will be blocked
-                }
+                return true;  // Projectile will be blocked
             }
         }
 
