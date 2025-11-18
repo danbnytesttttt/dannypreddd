@@ -626,26 +626,41 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
         return nullptr;
     }
 
-    // Try target selector first if available
+    // Try target selector first if available, but only if CLOSE
     game_object* ts_target = nullptr;
     if (sdk::target_selector)
     {
         ts_target = sdk::target_selector->get_hero_target();
 
-        // If target selector returned a valid target in range, use it
+        // FIXED: Only use TS target if they're ACTUALLY NEARBY (not just in spell range)
         if (ts_target && ts_target->is_valid() && !ts_target->is_dead())
         {
             float distance = ts_target->get_position().distance(spell_data.source->get_position());
-            if (distance <= spell_data.range + 200.f)
+
+            // CRITICAL: Proximity check to avoid targeting mid lane from bot lane
+            // Only auto-accept TS target if within reasonable proximity (1.5x spell range OR 1500 units max)
+            float proximity_threshold = std::min(spell_data.range * 1.5f, 1500.f);
+
+            if (distance <= proximity_threshold)
             {
                 if (PredictionSettings::get().enable_debug_logging)
-                    g_sdk->log_console("[Danny.Prediction] Using TS target");
+                {
+                    char debug[256];
+                    sprintf_s(debug, "[Danny.Prediction] Using TS target at %.0f units (threshold: %.0f)", distance, proximity_threshold);
+                    g_sdk->log_console(debug);
+                }
                 return ts_target;
+            }
+            else if (PredictionSettings::get().enable_debug_logging)
+            {
+                char debug[256];
+                sprintf_s(debug, "[Danny.Prediction] TS target too far (%.0f > %.0f), searching nearby", distance, proximity_threshold);
+                g_sdk->log_console(debug);
             }
         }
     }
 
-    // Fallback: Find best target based on hybrid prediction score
+    // Fallback: Find best target based on hybrid prediction score (prioritizes CLOSE targets)
     game_object* best_target = nullptr;
     float best_score = -1.f;
 
@@ -703,14 +718,21 @@ float CustomPredictionSDK::calculate_target_score(
     // Apply edge case priority multipliers (HUGE impact)
     score *= edge_cases.priority_multiplier;
 
-    // Prioritize closer targets
+    // FIXED: HEAVILY prioritize closer targets to avoid cross-map targeting
     float distance = target->get_position().distance(spell_data.source->get_position());
     float distance_factor = 0.f;
     if (spell_data.range > 0.f)
     {
         distance_factor = 1.f - std::min(distance / spell_data.range, 1.f);
     }
-    score *= (0.7f + distance_factor * 0.3f);
+
+    // Increased proximity weight from 30% to 70% - nearby targets get MUCH higher score
+    // Old: 0.7 + 0.3*factor (70%-100%)
+    // New: 0.3 + 0.7*factor (30%-100%)
+    // Example: Target at max range gets 0.3x multiplier (70% penalty)
+    //          Target at half range gets 0.65x multiplier (35% penalty)
+    //          Target at point blank gets 1.0x multiplier (no penalty)
+    score *= (0.3f + distance_factor * 0.7f);
 
     return score;
 }
