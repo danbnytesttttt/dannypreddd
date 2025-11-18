@@ -898,19 +898,27 @@ namespace HybridPred
         float prediction_time,
         float move_speed,
         float turn_rate,
-        float acceleration)
+        float acceleration,
+        float reaction_time)
     {
         ReachableRegion region;
         region.center = current_pos;
 
-        if (prediction_time < EPSILON)
+        // CRITICAL FIX: Subtract reaction time from prediction time
+        // Humans cannot react instantly - they need 200-300ms to see and respond
+        // This dramatically reduces reachable area for realistic predictions
+        float effective_dodge_time = std::max(0.f, prediction_time - reaction_time);
+
+        if (effective_dodge_time < EPSILON)
         {
+            // No time to dodge - region is essentially current position
             region.max_radius = 0.f;
             region.area = 0.f;
             return region;
         }
 
         // Maximum distance considering acceleration from current velocity
+        // Now uses EFFECTIVE dodge time (with reaction time subtracted)
         float current_speed = current_velocity.magnitude();
         float speed_diff = move_speed - current_speed;
 
@@ -918,14 +926,14 @@ namespace HybridPred
         if (speed_diff > 0.f && acceleration > 0.f)
         {
             // Time to reach max speed
-            float accel_time = std::min(speed_diff / acceleration, prediction_time);
+            float accel_time = std::min(speed_diff / acceleration, effective_dodge_time);
 
             // Distance during acceleration: d = v₀*t + 0.5*a*t²
             float accel_distance = current_speed * accel_time +
                 0.5f * acceleration * accel_time * accel_time;
 
             // Distance at max speed
-            float max_speed_time = prediction_time - accel_time;
+            float max_speed_time = effective_dodge_time - accel_time;
             float max_speed_distance = move_speed * max_speed_time;
 
             max_distance = accel_distance + max_speed_distance;
@@ -933,7 +941,7 @@ namespace HybridPred
         else
         {
             // Already at or above max speed (or instant speed)
-            max_distance = move_speed * prediction_time;
+            max_distance = move_speed * effective_dodge_time;
         }
 
         region.max_radius = max_distance;
@@ -985,6 +993,70 @@ namespace HybridPred
 
         // Probability = intersection / reachable area
         return std::min(1.f, intersection_area / reachable_region.area);
+    }
+
+    float PhysicsPredictor::compute_time_to_dodge_probability(
+        const math::vector3& target_position,
+        const math::vector3& cast_position,
+        float projectile_radius,
+        float target_move_speed,
+        float arrival_time,
+        float reaction_time)
+    {
+        /**
+         * Time-to-Dodge Physics Probability
+         * ==================================
+         *
+         * Instead of area intersection, we measure: "Can the target physically escape?"
+         *
+         * Algorithm:
+         * 1. Find distance from target to edge of spell hitbox
+         * 2. Calculate time needed to run that distance
+         * 3. Compare to time available (arrival - reaction)
+         * 4. Return ratio (or 1.0 if impossible to dodge)
+         *
+         * Benefits:
+         * - Returns 1.0 (guaranteed hit) when escape is physically impossible
+         * - Intuitive: 90% of dodge time needed = 90% physics probability
+         * - No arbitrary area ratios
+         * - Accounts for human reaction time
+         */
+
+        // Validate inputs
+        if (target_move_speed < EPSILON || arrival_time < EPSILON)
+            return 0.f;
+
+        // Calculate distance from target to spell center
+        float distance_to_center = (target_position - cast_position).magnitude();
+
+        // Calculate distance to escape (distance to edge of hitbox)
+        // If target is outside spell, they're already safe
+        if (distance_to_center >= projectile_radius)
+            return 0.f;
+
+        // Distance needed to run to safety
+        float distance_to_edge = projectile_radius - distance_to_center;
+
+        // Time needed to escape
+        float time_needed_to_escape = distance_to_edge / target_move_speed;
+
+        // Time available to dodge (subtract reaction time)
+        float time_available = arrival_time - reaction_time;
+
+        // If reaction time >= arrival time, target has no time to react
+        if (time_available <= 0.f)
+            return 1.0f;  // Guaranteed hit
+
+        // If they cannot physically escape in time, guaranteed hit
+        if (time_needed_to_escape >= time_available)
+            return 1.0f;
+
+        // Return ratio: how much of their available time is needed
+        // 90% needed = 90% probability they'll be hit
+        // 10% needed = 10% probability (they have plenty of time to dodge)
+        float probability = time_needed_to_escape / time_available;
+
+        return std::clamp(probability, 0.f, 1.f);
     }
 
     float PhysicsPredictor::compute_arrival_time(
@@ -1859,13 +1931,16 @@ namespace HybridPred
                 base_direction.x * sin_angle + base_direction.z * cos_angle
             );
 
-            // Compute hit probability for this angle
-            float test_physics_prob = compute_capsule_reachability_overlap(
-                capsule_start,
-                test_direction,
-                capsule_length,
-                capsule_radius,
-                reachable_region
+            // Compute hit probability for this angle using time-to-dodge method
+            // This is superior to area intersection for linear skillshots
+            math::vector3 test_cast_pos = capsule_start + test_direction * capsule_length;
+            float test_physics_prob = PhysicsPredictor::compute_time_to_dodge_probability(
+                target->get_position(),  // Current target position
+                test_cast_pos,           // Where spell will be
+                capsule_radius,          // Spell hitbox radius
+                move_speed,              // Target move speed
+                arrival_time,            // Time until spell arrives
+                HUMAN_REACTION_TIME      // 250ms reaction time
             );
 
             float test_behavior_prob = compute_capsule_behavior_probability(

@@ -76,8 +76,13 @@ namespace HybridPred
     constexpr float DEFAULT_ACCELERATION = 1200.0f; // units/s²
     constexpr float DEFAULT_DECELERATION = 2000.0f; // units/s²
 
+    // Human reaction time parameters (CRITICAL for realistic predictions)
+    constexpr float HUMAN_REACTION_TIME = 0.25f;    // Average human reaction time (250ms)
+    constexpr float MIN_REACTION_TIME = 0.15f;      // Fast reactions (pros, expecting the spell)
+    constexpr float MAX_REACTION_TIME = 0.35f;      // Slow reactions (distracted, teamfight)
+
     // Confidence parameters
-    constexpr float CONFIDENCE_DISTANCE_DECAY = 0.0005f;  // Per-unit distance penalty
+    constexpr float CONFIDENCE_DISTANCE_DECAY = 0.00005f;  // Per-unit distance penalty (REDUCED 10x from 0.0005)
     constexpr float CONFIDENCE_LATENCY_FACTOR = 0.01f;    // Per-ms latency penalty
     constexpr float ANIMATION_LOCK_CONFIDENCE_BOOST = 0.3f; // Boost when immobile
 
@@ -395,7 +400,8 @@ namespace HybridPred
             float prediction_time,
             float move_speed,
             float turn_rate = DEFAULT_TURN_RATE,
-            float acceleration = DEFAULT_ACCELERATION
+            float acceleration = DEFAULT_ACCELERATION,
+            float reaction_time = HUMAN_REACTION_TIME  // Subtract reaction time for realistic dodging
         );
 
         /**
@@ -408,14 +414,32 @@ namespace HybridPred
         );
 
         /**
-         * Compute physics-based hit probability
+         * Compute physics-based hit probability (area method)
          *
          * P_physics = (projectile_area ∩ reachable_area) / reachable_area
+         * Used for circular AoE spells where uniform distribution makes sense
          */
         static float compute_physics_hit_probability(
             const math::vector3& cast_position,
             float projectile_radius,
             const ReachableRegion& reachable_region
+        );
+
+        /**
+         * Compute physics-based hit probability (time-to-dodge method)
+         *
+         * Superior to area method for linear skillshots
+         * P_physics = time_needed_to_escape / time_available_to_dodge
+         *
+         * Returns 1.0 if target cannot physically escape in time
+         */
+        static float compute_time_to_dodge_probability(
+            const math::vector3& target_position,
+            const math::vector3& cast_position,
+            float projectile_radius,
+            float target_move_speed,
+            float arrival_time,
+            float reaction_time = HUMAN_REACTION_TIME
         );
 
         /**
