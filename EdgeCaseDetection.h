@@ -536,16 +536,6 @@ namespace EdgeCases
         float projectile_width,
         bool collides_with_minions)
     {
-        // NOTE: Disabled due to SDK API compatibility
-        // get_enemy_minions() and get_ally_minions() may not exist in your SDK
-        // TODO: Update with correct SDK API once known
-        (void)source_pos;
-        (void)target_pos;
-        (void)projectile_width;
-        (void)collides_with_minions;
-        return 1.0f;  // No minion blocking detection for now
-
-        /* ORIGINAL CODE - DISABLED
         // If spell pierces minions, no collision
         if (!collides_with_minions)
             return 1.0f;
@@ -565,11 +555,18 @@ namespace EdgeCases
 
         int blocking_minions = 0;
 
-        // Check enemy minions
-        auto enemy_minions = g_sdk->object_manager->get_enemy_minions();
-        for (auto* minion : enemy_minions)
+        // Get all minions (SDK uses get_minions(), not get_enemy_minions())
+        auto minions = g_sdk->object_manager->get_minions();
+        for (auto* minion : minions)
         {
             if (!minion || !minion->is_valid())
+                continue;
+
+            // Skip wards (don't block skillshots)
+            std::string name = minion->get_char_name();
+            if (name.find("Ward") != std::string::npos ||
+                name.find("Trinket") != std::string::npos ||
+                name.find("YellowTrinket") != std::string::npos)
                 continue;
 
             // Check if minion is between source and target
@@ -592,29 +589,6 @@ namespace EdgeCases
             }
         }
 
-        // Check ally minions too (they also block)
-        auto ally_minions = g_sdk->object_manager->get_ally_minions();
-        for (auto* minion : ally_minions)
-        {
-            if (!minion || !minion->is_valid())
-                continue;
-
-            math::vector3 to_minion = minion->get_position() - source_pos;
-            float distance_along_path = to_minion.dot(direction);
-
-            if (distance_along_path < 0.f || distance_along_path > distance_to_target)
-                continue;
-
-            math::vector3 closest_point_on_path = source_pos + direction * distance_along_path;
-            float perpendicular_distance = (minion->get_position() - closest_point_on_path).magnitude();
-
-            float minion_radius = minion->get_bounding_radius();
-            if (perpendicular_distance < minion_radius + projectile_width)
-            {
-                blocking_minions++;
-            }
-        }
-
         // Each minion blocks approximately 30% chance
         // Multiple minions: P(hit) = 0.7^n
         // 1 minion: 0.70 (70% hit chance)
@@ -624,8 +598,6 @@ namespace EdgeCases
             return 1.0f;
 
         return std::pow(0.7f, static_cast<float>(blocking_minions));
-        */
-        // END DISABLED CODE
     }
 
     // =========================================================================
