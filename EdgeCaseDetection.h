@@ -117,16 +117,26 @@ namespace EdgeCases
 
         float time_until_exit = stasis.end_time - current_time;
 
-        // CRITICAL: Cast so spell arrives EXACTLY when stasis ends
-        // Cast time = (stasis end) - (spell travel time) - (small buffer for ping)
-        constexpr float PING_BUFFER = 0.05f;  // 50ms buffer
-        float optimal_cast_delay = time_until_exit - spell_travel_time - PING_BUFFER;
+        // =====================================================================
+        // CRITICAL: Safety buffer for server tick rate and network jitter
+        // =====================================================================
+        // Server tick rate: 30Hz = 33ms per tick
+        // Network jitter: ±5ms typical
+        // Problem: If spell arrives exactly at stasis end, server might still
+        //          register target as invulnerable (not processed yet)
+        // Solution: Aim for 40ms AFTER stasis ends (not before!)
+        //
+        // Old bug: Subtracted buffer → spell arrives early → wasted on invuln
+        // New fix: Add buffer → spell arrives after next server tick → hits
+        // =====================================================================
+        constexpr float SAFETY_BUFFER = 0.04f;  // 40ms after stasis ends
+        float optimal_cast_delay = time_until_exit - spell_travel_time + SAFETY_BUFFER;
 
-        // If spell would arrive too early, target is still invulnerable
+        // If we need to wait before casting
         if (optimal_cast_delay > 0.f)
             return optimal_cast_delay;  // Wait this long before casting
 
-        // If we can cast now and hit right at exit
+        // If we can cast now (spell will arrive after stasis + buffer)
         if (optimal_cast_delay >= -0.1f && optimal_cast_delay < 0.f)
             return 0.f;  // Cast immediately
 
