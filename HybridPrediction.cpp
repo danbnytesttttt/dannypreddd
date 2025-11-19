@@ -958,7 +958,7 @@ namespace HybridPred
 
         // Maximum distance considering acceleration from current velocity
         // Now uses EFFECTIVE dodge time (with reaction time subtracted)
-        float current_speed = current_velocity.magnitude();
+        // NOTE: current_speed already calculated above for stability_factor
         float speed_diff = move_speed - current_speed;
 
         float max_distance;
