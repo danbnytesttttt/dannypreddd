@@ -924,8 +924,23 @@ namespace HybridPred
         //
         // Without this: System aims behind moving targets on fast spells
         // =====================================================================
+        //
+        // INERTIA STABILITY FACTOR - Reduce over-prediction when juking
+        // =====================================================================
+        // If target is moving slowly (decelerating to change direction),
+        // reduce inertia reliance to avoid "inertia trap" overshoot.
+        //
+        // Logic:
+        //   - Full speed → stability = 1.0 (full inertia)
+        //   - Slow/stopping → stability = 0.3-0.5 (reduced inertia)
+        //   - Helps detect active juking vs. linear movement
+        // =====================================================================
+        float current_speed = current_velocity.magnitude();
+        float stability_factor = std::min(1.0f, current_speed / (move_speed + EPSILON));
+        stability_factor = std::max(0.3f, stability_factor);  // Minimum 30% inertia
+
         float non_reactive_time = std::min(prediction_time, reaction_time);
-        math::vector3 drift_offset = current_velocity * non_reactive_time;
+        math::vector3 drift_offset = current_velocity * non_reactive_time * stability_factor;
         region.center = current_pos + drift_offset;
 
         // CRITICAL FIX: Subtract reaction time from prediction time
@@ -1011,14 +1026,51 @@ namespace HybridPred
         if (reachable_region.area < EPSILON)
             return 1.0f;  // No dodge time = guaranteed hit
 
-        // Compute intersection area between projectile circle and reachable circle
+        // =====================================================================
+        // GAUSSIAN KERNEL - Realistic probability distribution
+        // =====================================================================
+        // Old approach: Uniform probability across reachable region
+        //   - Assumes target equally likely at center vs edges (WRONG!)
+        //
+        // New approach: Gaussian distribution centered at predicted position
+        //   - Target most likely near predicted center (with inertia)
+        //   - Probability decreases toward edges of reachable region
+        //   - Models real movement patterns (players don't teleport randomly)
+        // =====================================================================
+
+        // Distance from cast position to predicted target center
+        float distance = (cast_position - reachable_region.center).magnitude();
+
+        // Gaussian kernel: target is most likely at predicted center
+        // σ = max_radius / 2.5 (so ~95% of probability within max_radius)
+        float sigma = reachable_region.max_radius / 2.5f;
+        if (sigma < EPSILON)
+            sigma = 10.f;  // Fallback for edge cases
+
+        // Gaussian weight: exp(-distance² / 2σ²)
+        // Close to predicted center → weight ≈ 1.0
+        // Far from predicted center → weight ≈ 0.0
+        float gaussian_weight = std::exp(-distance * distance / (2.0f * sigma * sigma));
+
+        // Compute intersection area (how much projectile overlaps reachable region)
         float intersection_area = circle_circle_intersection_area(
             cast_position, projectile_radius,
             reachable_region.center, reachable_region.max_radius
         );
 
-        // Probability = intersection / reachable area
-        return std::min(1.f, intersection_area / reachable_region.area);
+        // Weight the area-based probability by Gaussian distribution
+        float area_probability = intersection_area / reachable_region.area;
+        float weighted_probability = gaussian_weight * area_probability;
+
+        // Bonus: If predicted center is inside projectile hitbox, very likely to hit!
+        if (distance < projectile_radius)
+        {
+            // Target's predicted position is directly inside our projectile
+            // Even if reachable area extends beyond, center hit is very likely
+            weighted_probability = std::max(weighted_probability, gaussian_weight * 0.85f);
+        }
+
+        return std::min(1.f, weighted_probability);
     }
 
     float PhysicsPredictor::compute_time_to_dodge_probability(
@@ -1145,12 +1197,27 @@ namespace HybridPred
             }
         }
 
-        // Return ratio: how much of their available time is needed
-        // 90% needed = 90% probability they'll be hit
-        // 10% needed = 10% probability (they have plenty of time to dodge)
-        float probability = time_needed_to_escape / time_available;
+        // =====================================================================
+        // SIGMOID FUNCTION - Realistic dodge difficulty curve
+        // =====================================================================
+        // Linear ratio doesn't capture human dodge difficulty thresholds.
+        // Use sigmoid: probability = 1.0 / (1.0 + exp(-k * (ratio - midpoint)))
+        //
+        // Parameters tuned for:
+        //   - ratio = 0.2 (plenty of time) → ~0% hit probability
+        //   - ratio = 0.85 (barely enough time) → ~95% hit probability
+        //
+        // This models the sharp threshold where dodging transitions from
+        // "easy" to "impossible" as time pressure increases.
+        // =====================================================================
+        float ratio = time_needed_to_escape / time_available;
 
-        return std::clamp(probability, 0.f, 1.f);
+        constexpr float SIGMOID_STEEPNESS = 40.f;  // How sharp the threshold is
+        constexpr float SIGMOID_MIDPOINT = 0.80f;  // Center point (50% probability)
+
+        float sigmoid_probability = 1.0f / (1.0f + std::exp(-SIGMOID_STEEPNESS * (ratio - SIGMOID_MIDPOINT)));
+
+        return std::clamp(sigmoid_probability, 0.f, 1.f);
     }
 
     float PhysicsPredictor::compute_arrival_time(
