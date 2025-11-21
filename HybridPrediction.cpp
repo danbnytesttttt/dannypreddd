@@ -1087,6 +1087,67 @@ namespace HybridPred
         return current_pos + current_velocity * prediction_time;
     }
 
+    math::vector3 PhysicsPredictor::predict_on_path(
+        game_object* target,
+        float prediction_time)
+    {
+        if (!target || !target->is_valid())
+            return math::vector3{};
+
+        math::vector3 position = target->get_position();
+        auto path = target->get_path();
+
+        // No path or stationary - return current position
+        if (path.size() <= 1)
+            return position;
+
+        float move_speed = target->get_move_speed();
+        if (move_speed < 1.f)
+            return position;
+
+        float distance_to_travel = move_speed * prediction_time;
+        float traveled = 0.f;
+
+        // Follow path waypoints
+        for (size_t i = 1; i < path.size(); ++i)
+        {
+            math::vector3 segment_start = (i == 1) ? position : path[i - 1];
+            math::vector3 segment_end = path[i];
+
+            math::vector3 segment_diff = segment_end - segment_start;
+            float segment_length = segment_diff.magnitude();
+
+            if (segment_length < 0.001f)
+                continue;
+
+            float remaining = distance_to_travel - traveled;
+
+            if (traveled + segment_length >= distance_to_travel)
+            {
+                // Target will be on this segment
+                math::vector3 direction = segment_diff / segment_length;
+                return segment_start + direction * remaining;
+            }
+
+            traveled += segment_length;
+        }
+
+        // Traveled past all waypoints - extrapolate from last segment
+        if (path.size() >= 2)
+        {
+            math::vector3 last_dir = path.back() - path[path.size() - 2];
+            float last_len = last_dir.magnitude();
+            if (last_len > 0.001f)
+            {
+                last_dir = last_dir / last_len;
+                float overshoot = distance_to_travel - traveled;
+                return path.back() + last_dir * overshoot;
+            }
+        }
+
+        return path.back();
+    }
+
     float PhysicsPredictor::compute_physics_hit_probability(
         const math::vector3& cast_position,
         float projectile_radius,
@@ -1743,13 +1804,18 @@ namespace HybridPred
         );
 
         // Step 2: Build reachable region (physics)
+        // FIX: Use path-following prediction for initial center position
+        // This follows actual waypoints instead of linear extrapolation
+        math::vector3 path_predicted_pos = PhysicsPredictor::predict_on_path(target, arrival_time);
         math::vector3 target_velocity = tracker.get_current_velocity();
         float move_speed = target->get_move_speed();
 
+        // Use path-predicted position as center, with reduced dodge time
+        // Path prediction handles movement along waypoints
         ReachableRegion reachable_region = PhysicsPredictor::compute_reachable_region(
-            target->get_position(),
-            target_velocity,
-            arrival_time,
+            path_predicted_pos,
+            math::vector3(0, 0, 0),  // Zero velocity since path prediction handles movement
+            arrival_time * 0.3f,     // Reduced time - only dodge window
             move_speed
         );
 
@@ -2136,13 +2202,16 @@ namespace HybridPred
         );
 
         // Step 2: Build reachable region (physics)
+        // FIX: Use path-following prediction for better accuracy
+        math::vector3 path_predicted_pos = PhysicsPredictor::predict_on_path(target, arrival_time);
         math::vector3 target_velocity = tracker.get_current_velocity();
         float move_speed = target->get_move_speed();
 
+        // Use path-predicted position as center
         ReachableRegion reachable_region = PhysicsPredictor::compute_reachable_region(
-            target->get_position(),
-            target_velocity,
-            arrival_time,
+            path_predicted_pos,
+            math::vector3(0, 0, 0),  // Zero velocity since path prediction handles movement
+            arrival_time * 0.3f,     // Reduced time - only dodge window
             move_speed
         );
 

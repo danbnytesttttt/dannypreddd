@@ -93,6 +93,18 @@ namespace PredictionVisuals
             // Additional safety for dummies/special units
             if (!target->is_targetable())
                 return;
+
+            // FIX: Only draw for enemies within 1500 range
+            if (g_sdk->object_manager)
+            {
+                auto* local_player = g_sdk->object_manager->get_local_player();
+                if (local_player && local_player->is_valid())
+                {
+                    float distance = target->get_position().distance(local_player->get_position());
+                    if (distance > 1500.f)
+                        return;
+                }
+            }
         }
         catch (...)
         {

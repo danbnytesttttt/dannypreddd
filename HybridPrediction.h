@@ -458,6 +458,15 @@ namespace HybridPred
         );
 
         /**
+         * Predict position by following actual game path waypoints
+         * More accurate than linear for curved/multi-waypoint paths
+         */
+        static math::vector3 predict_on_path(
+            game_object* target,
+            float prediction_time
+        );
+
+        /**
          * Compute physics-based hit probability (area method)
          *
          * P_physics = (projectile_area ∩ reachable_area) / reachable_area
