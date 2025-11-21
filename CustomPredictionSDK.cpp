@@ -347,22 +347,49 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     // For linear skillshots, the hitbox extends beyond the center point by the radius
     float range_buffer = (spell_data.spell_type == pred_sdk::spell_type::linear) ? spell_data.radius : 0.f;
 
-    // Allow small leeway for high speed targets (server tick desync)
-    float high_speed_allowance = (obj->get_move_speed() > 400.f) ? 50.f : 0.f;
+    float effective_range = spell_data.range + range_buffer;
 
-    float effective_range = spell_data.range + range_buffer + high_speed_allowance;
+    // FIX: Account for movement during cast animation
+    // Prediction calculates where they'll be when spell ARRIVES
+    // But they also move during our cast animation (~0.25s) BEFORE spell starts traveling
+    // This is especially important for max-range casts
+    float range_usage = predicted_distance / std::max(spell_data.range, 1.f);
+
+    if (range_usage > 0.85f)  // Near max range - be more careful
+    {
+        // Check if target is moving away from the predicted position
+        auto* tracker = HybridPred::PredictionManager::get_tracker(obj);
+        if (tracker)
+        {
+            math::vector3 target_velocity = tracker->get_current_velocity();
+            math::vector3 to_predicted = result.cast_position - source_pos;
+            float to_pred_mag = to_predicted.magnitude();
+
+            if (to_pred_mag > 0.001f)
+            {
+                math::vector3 to_pred_dir = to_predicted / to_pred_mag;
+                // Positive = moving away from us (in same direction as predicted pos)
+                float away_speed = target_velocity.dot(to_pred_dir);
+
+                if (away_speed > 100.f)  // Moving away at significant speed
+                {
+                    // They'll move further during cast animation (~0.25s)
+                    float cast_animation_movement = away_speed * 0.25f;
+                    effective_range -= cast_animation_movement;
+                }
+            }
+        }
+    }
 
     // CHECK: Is the PREDICTED position in range?
-    // We do NOT subtract "retreat penalty" because predicted_distance
-    // already accounts for their movement
     if (predicted_distance > effective_range)
     {
         if (PredictionSettings::get().enable_debug_logging)
         {
             char range_msg[256];
             snprintf(range_msg, sizeof(range_msg),
-                "[REJECT] Predicted pos out of range: %.0f > %.0f (Speed: %.0f)",
-                predicted_distance, effective_range, obj->get_move_speed());
+                "[REJECT] Predicted pos out of range: %.0f > %.0f (Usage: %.0f%%)",
+                predicted_distance, effective_range, range_usage * 100.f);
             g_sdk->log_console(range_msg);
         }
         PredictionTelemetry::TelemetryLogger::log_rejection_predicted_range();
