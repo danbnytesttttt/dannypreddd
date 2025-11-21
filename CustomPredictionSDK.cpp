@@ -344,62 +344,25 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     // This prevents casting at targets that will walk out of range
     float predicted_distance = result.cast_position.distance(source_pos);
 
-    // For linear skillshots, add radius as buffer since we can hit along the path
-    // For circular, be more strict since we need to reach the center
-    float range_buffer = (spell_data.spell_type == pred_sdk::spell_type::linear) ? spell_data.radius : 25.f;
-    float effective_range = spell_data.range + range_buffer;
+    // For linear skillshots, the hitbox extends beyond the center point by the radius
+    float range_buffer = (spell_data.spell_type == pred_sdk::spell_type::linear) ? spell_data.radius : 0.f;
 
-    // FIX: Check if target is retreating (moving away from us)
-    // Retreating targets at edge of range are likely to escape
-    auto* tracker = HybridPred::PredictionManager::get_tracker(obj);
-    bool is_retreating = false;
-    float retreat_penalty_range = 0.f;
+    // Allow small leeway for high speed targets (server tick desync)
+    float high_speed_allowance = (obj->get_move_speed() > 400.f) ? 50.f : 0.f;
 
-    if (tracker)
-    {
-        math::vector3 target_velocity = tracker->get_current_velocity();
-        math::vector3 to_target = target_pos - source_pos;
-        float to_target_mag = to_target.magnitude();
+    float effective_range = spell_data.range + range_buffer + high_speed_allowance;
 
-        if (to_target_mag > 0.001f)
-        {
-            math::vector3 to_target_dir = to_target / to_target_mag;
-            // Dot product: positive = moving toward us, negative = moving away
-            float retreat_dot = target_velocity.dot(to_target_dir);
-
-            if (retreat_dot > 50.f)  // Moving away at significant speed
-            {
-                is_retreating = true;
-                // Apply stricter range check for retreating targets
-                // Penalize by estimated distance traveled during cast + travel time
-                float travel_time = HybridPred::PhysicsPredictor::compute_arrival_time(
-                    source_pos, result.cast_position, spell_data.projectile_speed, spell_data.delay);
-                // Extra buffer: they continue moving during our cast animation (~0.25s typical)
-                retreat_penalty_range = retreat_dot * (travel_time + 0.15f);
-            }
-        }
-    }
-
-    // Apply stricter range check for retreating targets
-    float adjusted_range = effective_range - retreat_penalty_range;
-
-    if (predicted_distance > adjusted_range)
+    // CHECK: Is the PREDICTED position in range?
+    // We do NOT subtract "retreat penalty" because predicted_distance
+    // already accounts for their movement
+    if (predicted_distance > effective_range)
     {
         if (PredictionSettings::get().enable_debug_logging)
         {
             char range_msg[256];
-            if (is_retreating)
-            {
-                snprintf(range_msg, sizeof(range_msg),
-                    "[REJECT] Retreating target out of range: %.0f > %.0f (range:%.0f - retreat:%.0f)",
-                    predicted_distance, adjusted_range, effective_range, retreat_penalty_range);
-            }
-            else
-            {
-                snprintf(range_msg, sizeof(range_msg),
-                    "[REJECT] Predicted position out of range: %.0f > %.0f (range:%.0f + buffer:%.0f)",
-                    predicted_distance, effective_range, spell_data.range, range_buffer);
-            }
+            snprintf(range_msg, sizeof(range_msg),
+                "[REJECT] Predicted pos out of range: %.0f > %.0f (Speed: %.0f)",
+                predicted_distance, effective_range, obj->get_move_speed());
             g_sdk->log_console(range_msg);
         }
         PredictionTelemetry::TelemetryLogger::log_rejection_predicted_range();

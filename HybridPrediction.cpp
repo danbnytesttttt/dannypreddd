@@ -1132,19 +1132,8 @@ namespace HybridPred
             traveled += segment_length;
         }
 
-        // Traveled past all waypoints - extrapolate from last segment
-        if (path.size() >= 2)
-        {
-            math::vector3 last_dir = path.back() - path[path.size() - 2];
-            float last_len = last_dir.magnitude();
-            if (last_len > 0.001f)
-            {
-                last_dir = last_dir / last_len;
-                float overshoot = distance_to_travel - traveled;
-                return path.back() + last_dir * overshoot;
-            }
-        }
-
+        // Traveled past all waypoints - target STOPS at final destination
+        // Do NOT extrapolate past their click point
         return path.back();
     }
 
