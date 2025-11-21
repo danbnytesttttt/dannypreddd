@@ -86,22 +86,20 @@ extern "C" __declspec(dllexport) bool PluginLoad(core_sdk* sdk, void** custom_sd
 {
     g_sdk = sdk;
 
+    // Validate all prerequisites BEFORE setting any pointers
     if (!sdk_init::target_selector())
     {
         return false;
     }
 
-    *custom_sdk = &customPrediction;
-
-    // CRITICAL: Set the global SDK prediction pointer to our implementation
-    // This is what makes other plugins use our prediction system
-    sdk::prediction = &customPrediction;
-
-    // CRITICAL: Validate object_manager and local player before accessing
     if (!g_sdk->object_manager || !g_sdk->object_manager->get_local_player())
     {
         return false;
     }
+
+    // All validations passed - now set pointers
+    *custom_sdk = &customPrediction;
+    sdk::prediction = &customPrediction;
 
     MyHeroNamePredCore = g_sdk->object_manager->get_local_player()->get_char_name();
 
