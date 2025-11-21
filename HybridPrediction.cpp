@@ -162,6 +162,17 @@ namespace HybridPred
             else
             {
                 snapshot.velocity = compute_velocity(movement_history_.back(), snapshot);
+
+                // VELOCITY SANITY CAPPING: Prevent extreme values
+                // Max champion speed with all boosts is ~800 units/sec
+                // Anything above 1000 is likely a calculation error or micro-teleport
+                constexpr float MAX_SANE_VELOCITY = 1000.f;
+                float vel_magnitude = snapshot.velocity.magnitude();
+                if (vel_magnitude > MAX_SANE_VELOCITY)
+                {
+                    // Cap velocity magnitude while preserving direction
+                    snapshot.velocity = (snapshot.velocity / vel_magnitude) * MAX_SANE_VELOCITY;
+                }
             }
 
             // Detect auto-attack for post-AA movement analysis
@@ -325,12 +336,21 @@ namespace HybridPred
             // Old: 0.15 (~8.5°) was too sensitive, caught micro-adjustments as jukes
             constexpr float JUKE_THRESHOLD = 0.25f;
 
+            int current_move = 0;
             if (cross_y > JUKE_THRESHOLD)
-                dodge_pattern_.juke_sequence.push_back(-1);  // Left
+                current_move = -1;  // Left
             else if (cross_y < -JUKE_THRESHOLD)
-                dodge_pattern_.juke_sequence.push_back(1);   // Right
-            else
-                dodge_pattern_.juke_sequence.push_back(0);   // Straight
+                current_move = 1;   // Right
+            // else current_move = 0 (Straight)
+
+            // UPDATE N-GRAM TRANSITIONS: Record transition from previous move to current
+            if (!dodge_pattern_.juke_sequence.empty())
+            {
+                int prev_move = dodge_pattern_.juke_sequence.back();
+                dodge_pattern_.ngram_transitions[prev_move][current_move]++;
+            }
+
+            dodge_pattern_.juke_sequence.push_back(current_move);
         }
 
         // Detect alternating pattern (L-R-L-R or R-L-R-L)
@@ -665,16 +685,26 @@ namespace HybridPred
                 juke_cadence_weight = std::clamp(juke_cadence_weight, 0.3f, 1.0f);
             }
 
-            if (dodge_pattern_.left_dodge_frequency > 0.3f)
+            // N-GRAM ENHANCED DODGE PREDICTION
+            // Blend overall frequency with N-Gram probability for smarter weighting
+            // N-Gram captures "given they just went Right, what's next?" vs overall "they go Left 60% of time"
+            float ngram_left = dodge_pattern_.get_ngram_probability(-1);
+            float ngram_right = dodge_pattern_.get_ngram_probability(1);
+
+            // Blend: 60% N-Gram + 40% overall frequency (N-Gram is more specific to current state)
+            float left_weight = 0.6f * ngram_left + 0.4f * dodge_pattern_.left_dodge_frequency;
+            float right_weight = 0.6f * ngram_right + 0.4f * dodge_pattern_.right_dodge_frequency;
+
+            if (left_weight > 0.2f)
             {
                 math::vector3 left_pos = latest.position + forward + side;
-                pdf.add_weighted_sample(left_pos, dodge_pattern_.left_dodge_frequency * 0.5f * juke_cadence_weight);
+                pdf.add_weighted_sample(left_pos, left_weight * 0.5f * juke_cadence_weight);
             }
 
-            if (dodge_pattern_.right_dodge_frequency > 0.3f)
+            if (right_weight > 0.2f)
             {
                 math::vector3 right_pos = latest.position + forward - side;
-                pdf.add_weighted_sample(right_pos, dodge_pattern_.right_dodge_frequency * 0.5f * juke_cadence_weight);
+                pdf.add_weighted_sample(right_pos, right_weight * 0.5f * juke_cadence_weight);
             }
 
             // PATTERN-BASED PREDICTION BOOST
@@ -1727,6 +1757,42 @@ namespace HybridPred
             spell.radius,
             confidence
         );
+
+        // NAVMESH CLAMPING: Ensure cast position is on pathable terrain
+        // If predicted position is in a wall, find nearest pathable point
+        if (g_sdk && g_sdk->nav_mesh)
+        {
+            if (!g_sdk->nav_mesh->is_pathable(optimal_cast_pos))
+            {
+                // Search in a small radius for pathable position
+                constexpr float SEARCH_STEP = 25.f;
+                constexpr int SEARCH_DIRECTIONS = 8;
+                float best_distance = FLT_MAX;
+                math::vector3 best_pos = optimal_cast_pos;
+
+                for (int i = 0; i < SEARCH_DIRECTIONS; ++i)
+                {
+                    float angle = (2.f * PI * i) / SEARCH_DIRECTIONS;
+                    for (float dist = SEARCH_STEP; dist <= 150.f; dist += SEARCH_STEP)
+                    {
+                        math::vector3 test_pos = optimal_cast_pos;
+                        test_pos.x += std::cos(angle) * dist;
+                        test_pos.z += std::sin(angle) * dist;
+
+                        if (g_sdk->nav_mesh->is_pathable(test_pos))
+                        {
+                            if (dist < best_distance)
+                            {
+                                best_distance = dist;
+                                best_pos = test_pos;
+                            }
+                            break;  // Found pathable point in this direction
+                        }
+                    }
+                }
+                optimal_cast_pos = best_pos;
+            }
+        }
 
         result.cast_position = optimal_cast_pos;
 

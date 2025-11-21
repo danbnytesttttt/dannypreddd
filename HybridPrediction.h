@@ -206,6 +206,35 @@ namespace HybridPred
         bool has_pattern;                        // True if repeating pattern detected
         float last_pattern_update_time;          // Timestamp of last pattern update (for expiration)
 
+        // N-Gram (Markov) pattern recognition
+        // Tracks transitions: given previous move, what's the probability of each next move?
+        // Key: previous move (-1, 0, 1), Value: map of next move to count
+        std::map<int, std::map<int, int>> ngram_transitions;
+
+        // Get N-Gram probability for a predicted move given current state
+        float get_ngram_probability(int predicted_move) const
+        {
+            if (juke_sequence.empty()) return 0.33f;  // No data
+
+            int last_move = juke_sequence.back();
+            auto it = ngram_transitions.find(last_move);
+            if (it == ngram_transitions.end()) return 0.33f;  // No transitions from this state
+
+            const auto& next_counts = it->second;
+            int total = 0;
+            int target_count = 0;
+
+            for (const auto& pair : next_counts)
+            {
+                total += pair.second;
+                if (pair.first == predicted_move)
+                    target_count = pair.second;
+            }
+
+            if (total == 0) return 0.33f;
+            return static_cast<float>(target_count) / static_cast<float>(total);
+        }
+
         DodgePattern() : left_dodge_frequency(0.5f), right_dodge_frequency(0.5f),
             forward_frequency(0.5f), backward_frequency(0.5f),
             juke_interval_mean(0.5f), juke_interval_variance(0.1f),
