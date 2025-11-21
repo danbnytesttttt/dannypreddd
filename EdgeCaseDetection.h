@@ -2,7 +2,7 @@
 
 #include "sdk.hpp"
 #include "StandalonePredictionSDK.h"  // MUST be included AFTER sdk.hpp for compatibility
-#include "PredictionConfig.h"
+#include "PredictionSettings.h"
 #include <vector>
 #include <string>
 
@@ -117,16 +117,26 @@ namespace EdgeCases
 
         float time_until_exit = stasis.end_time - current_time;
 
-        // CRITICAL: Cast so spell arrives EXACTLY when stasis ends
-        // Cast time = (stasis end) - (spell travel time) - (small buffer for ping)
-        constexpr float PING_BUFFER = 0.05f;  // 50ms buffer
-        float optimal_cast_delay = time_until_exit - spell_travel_time - PING_BUFFER;
+        // =====================================================================
+        // CRITICAL: Safety buffer for server tick rate and network jitter
+        // =====================================================================
+        // Server tick rate: 30Hz = 33ms per tick
+        // Network jitter: ±5ms typical
+        // Problem: If spell arrives exactly at stasis end, server might still
+        //          register target as invulnerable (not processed yet)
+        // Solution: Aim for 40ms AFTER stasis ends (not before!)
+        //
+        // Old bug: Subtracted buffer → spell arrives early → wasted on invuln
+        // New fix: Add buffer → spell arrives after next server tick → hits
+        // =====================================================================
+        constexpr float SAFETY_BUFFER = 0.04f;  // 40ms after stasis ends
+        float optimal_cast_delay = time_until_exit - spell_travel_time + SAFETY_BUFFER;
 
-        // If spell would arrive too early, target is still invulnerable
+        // If we need to wait before casting
         if (optimal_cast_delay > 0.f)
             return optimal_cast_delay;  // Wait this long before casting
 
-        // If we can cast now and hit right at exit
+        // If we can cast now (spell will arrive after stasis + buffer)
         if (optimal_cast_delay >= -0.1f && optimal_cast_delay < 0.f)
             return 0.f;  // Cast immediately
 
@@ -379,63 +389,79 @@ namespace EdgeCases
 
     /**
      * Detect active windwalls that can block projectiles
+     *
+     * DISABLED: Cannot accurately track windwall position without particle API
+     * - Yasuo W spawns in front of him and drifts forward
+     * - Using hero position is incorrect (wall != hero location)
+     * - Particle tracking would require complex object iteration
+     *
+     * TODO: Implement proper particle-based detection or remove entirely
      */
     inline std::vector<WindwallInfo> detect_windwalls()
     {
+        // DISABLED - returns empty (no windwall detection)
+        return std::vector<WindwallInfo>();
+
+        /* DISABLED CODE - Geometry broken without particle positions
         std::vector<WindwallInfo> windwalls;
 
-        // NOTE: Disabled due to SDK API compatibility
-        // get_enemy_heroes() may not exist or return different type in your SDK
-        // TODO: Update with correct SDK API once known
-        return windwalls;
-
-        /* ORIGINAL CODE - DISABLED
         if (!g_sdk || !g_sdk->object_manager)
             return windwalls;
 
-        auto enemies = g_sdk->object_manager->get_enemy_heroes();
-        for (auto* enemy : enemies)
+        auto* local_player = g_sdk->object_manager->get_local_player();
+        if (!local_player || !local_player->is_valid())
+            return windwalls;
+
+        int local_team = local_player->get_team_id();
+
+        // Get all heroes and filter manually by team
+        auto heroes = g_sdk->object_manager->get_heroes();
+        for (auto* hero : heroes)
         {
-            if (!enemy || !enemy->is_valid())
+            if (!hero || !hero->is_valid() || hero->is_dead())
+                continue;
+
+            // Skip allies - only check enemies
+            if (hero->get_team_id() == local_team)
                 continue;
 
             // Yasuo Windwall
             std::string yasuo_buff = "yasuowmovingwall";
-            auto yasuo_wall = enemy->get_buff_by_name(yasuo_buff);
+            auto yasuo_wall = hero->get_buff_by_name(yasuo_buff);
             if (yasuo_wall && yasuo_wall->is_active())
             {
                 WindwallInfo wall;
                 wall.exists = true;
-                wall.position = enemy->get_position();  // Approximate
-                wall.width = 300.f;  // Yasuo wall width
+                wall.position = hero->get_position();  // BROKEN: Wall spawns in front, not at hero
+                wall.width = 300.f;
                 wall.end_time = yasuo_wall->get_end_time();
                 wall.source_champion = "yasuo";
                 windwalls.push_back(wall);
             }
 
-            // Samira Windwall
+            // Samira Blade Whirl
             std::string samira_buff = "samiraw";
-            auto samira_wall = enemy->get_buff_by_name(samira_buff);
+            auto samira_wall = hero->get_buff_by_name(samira_buff);
             if (samira_wall && samira_wall->is_active())
             {
                 WindwallInfo wall;
                 wall.exists = true;
-                wall.position = enemy->get_position();
-                wall.width = 325.f;  // Samira wall radius
+                wall.position = hero->get_position();
+                wall.width = 325.f;
                 wall.end_time = samira_wall->get_end_time();
                 wall.source_champion = "samira";
                 windwalls.push_back(wall);
             }
 
-            // Braum Shield (blocks first projectile)
+            // Braum Unbreakable
             std::string braum_buff = "braume";
-            auto braum_shield = enemy->get_buff_by_name(braum_buff);
+            auto braum_shield = hero->get_buff_by_name(braum_buff);
             if (braum_shield && braum_shield->is_active())
             {
                 WindwallInfo wall;
                 wall.exists = true;
-                wall.position = enemy->get_position();
-                wall.width = 200.f;  // Braum shield width
+                wall.position = hero->get_position();
+                wall.width = 200.f;
                 wall.end_time = braum_shield->get_end_time();
                 wall.source_champion = "braum";
                 windwalls.push_back(wall);
@@ -443,12 +469,12 @@ namespace EdgeCases
         }
 
         return windwalls;
-        */
-        // END DISABLED CODE
+        END DISABLED CODE */
     }
 
     /**
      * Check if projectile path intersects with any windwall
+     * FIXED: Correct closest point calculation using dot product projection
      */
     inline bool will_hit_windwall(
         const math::vector3& start_pos,
@@ -460,7 +486,7 @@ namespace EdgeCases
             if (!wall.exists)
                 continue;
 
-            // Simple distance check - projectile path near windwall position
+            // Calculate projectile direction vector
             math::vector3 to_target = end_pos - start_pos;
             float distance_to_target = to_target.magnitude();
 
@@ -468,20 +494,24 @@ namespace EdgeCases
             if (distance_to_target < MIN_SAFE_DISTANCE)
                 continue;  // Zero-length path, skip windwall check
 
-            math::vector3 direction = to_target / distance_to_target;  // Safe manual normalize
-            float distance_to_wall = (wall.position - start_pos).magnitude();
+            math::vector3 direction = to_target / distance_to_target;  // Normalized direction
 
-            // If windwall is between source and target
-            if (distance_to_wall < distance_to_target)
+            // FIXED: Project windwall position onto the projectile path using dot product
+            math::vector3 start_to_wall = wall.position - start_pos;
+            float projection = start_to_wall.dot(direction);
+
+            // Clamp projection to line segment [0, distance_to_target]
+            if (projection < 0.f || projection > distance_to_target)
+                continue;  // Windwall is not between start and end
+
+            // Calculate closest point on path and perpendicular distance to windwall
+            math::vector3 closest_point_on_path = start_pos + direction * projection;
+            float perpendicular_distance = (wall.position - closest_point_on_path).magnitude();
+
+            // Check if windwall is close enough to block projectile
+            if (perpendicular_distance < wall.width)
             {
-                // Check if path intersects windwall area
-                math::vector3 closest_point_on_path = start_pos + direction * distance_to_wall;
-                float distance_from_path = (wall.position - closest_point_on_path).magnitude();
-
-                if (distance_from_path < wall.width)
-                {
-                    return true;  // Projectile will be blocked
-                }
+                return true;  // Projectile will be blocked
             }
         }
 
@@ -506,16 +536,6 @@ namespace EdgeCases
         float projectile_width,
         bool collides_with_minions)
     {
-        // NOTE: Disabled due to SDK API compatibility
-        // get_enemy_minions() and get_ally_minions() may not exist in your SDK
-        // TODO: Update with correct SDK API once known
-        (void)source_pos;
-        (void)target_pos;
-        (void)projectile_width;
-        (void)collides_with_minions;
-        return 1.0f;  // No minion blocking detection for now
-
-        /* ORIGINAL CODE - DISABLED
         // If spell pierces minions, no collision
         if (!collides_with_minions)
             return 1.0f;
@@ -535,11 +555,18 @@ namespace EdgeCases
 
         int blocking_minions = 0;
 
-        // Check enemy minions
-        auto enemy_minions = g_sdk->object_manager->get_enemy_minions();
-        for (auto* minion : enemy_minions)
+        // Get all minions (SDK uses get_minions(), not get_enemy_minions())
+        auto minions = g_sdk->object_manager->get_minions();
+        for (auto* minion : minions)
         {
             if (!minion || !minion->is_valid())
+                continue;
+
+            // Skip wards (don't block skillshots)
+            std::string name = minion->get_char_name();
+            if (name.find("Ward") != std::string::npos ||
+                name.find("Trinket") != std::string::npos ||
+                name.find("YellowTrinket") != std::string::npos)
                 continue;
 
             // Check if minion is between source and target
@@ -562,29 +589,6 @@ namespace EdgeCases
             }
         }
 
-        // Check ally minions too (they also block)
-        auto ally_minions = g_sdk->object_manager->get_ally_minions();
-        for (auto* minion : ally_minions)
-        {
-            if (!minion || !minion->is_valid())
-                continue;
-
-            math::vector3 to_minion = minion->get_position() - source_pos;
-            float distance_along_path = to_minion.dot(direction);
-
-            if (distance_along_path < 0.f || distance_along_path > distance_to_target)
-                continue;
-
-            math::vector3 closest_point_on_path = source_pos + direction * distance_along_path;
-            float perpendicular_distance = (minion->get_position() - closest_point_on_path).magnitude();
-
-            float minion_radius = minion->get_bounding_radius();
-            if (perpendicular_distance < minion_radius + projectile_width)
-            {
-                blocking_minions++;
-            }
-        }
-
         // Each minion blocks approximately 30% chance
         // Multiple minions: P(hit) = 0.7^n
         // 1 minion: 0.70 (70% hit chance)
@@ -594,8 +598,6 @@ namespace EdgeCases
             return 1.0f;
 
         return std::pow(0.7f, static_cast<float>(blocking_minions));
-        */
-        // END DISABLED CODE
     }
 
     // =========================================================================
@@ -690,7 +692,7 @@ namespace EdgeCases
         analysis.stasis = detect_stasis(target);
 
         // Dash prediction (configurable)
-        if (PredictionConfig::get().enable_dash_prediction)
+        if (PredictionSettings::get().enable_dash_prediction)
         {
             analysis.dash = detect_dash(target);
         }

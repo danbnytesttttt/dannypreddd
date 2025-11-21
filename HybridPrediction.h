@@ -1,12 +1,5 @@
 #pragma once
 
-// CRITICAL: Disable iterator debugging in release mode to avoid CRT linker errors
-// This MUST be set before any STL headers are included
-#ifndef _DEBUG
-    #undef _ITERATOR_DEBUG_LEVEL
-    #define _ITERATOR_DEBUG_LEVEL 0
-#endif
-
 #include "sdk.hpp"
 #include "StandalonePredictionSDK.h"  // MUST be included AFTER sdk.hpp for compatibility
 #include "EdgeCaseDetection.h"
@@ -76,8 +69,13 @@ namespace HybridPred
     constexpr float DEFAULT_ACCELERATION = 1200.0f; // units/s²
     constexpr float DEFAULT_DECELERATION = 2000.0f; // units/s²
 
+    // Human reaction time parameters (CRITICAL for realistic predictions)
+    constexpr float HUMAN_REACTION_TIME = 0.25f;    // Average human reaction time (250ms)
+    constexpr float MIN_REACTION_TIME = 0.15f;      // Fast reactions (pros, expecting the spell)
+    constexpr float MAX_REACTION_TIME = 0.35f;      // Slow reactions (distracted, teamfight)
+
     // Confidence parameters
-    constexpr float CONFIDENCE_DISTANCE_DECAY = 0.0005f;  // Per-unit distance penalty
+    constexpr float CONFIDENCE_DISTANCE_DECAY = 0.00005f;  // Per-unit distance penalty (REDUCED 10x from 0.0005)
     constexpr float CONFIDENCE_LATENCY_FACTOR = 0.01f;    // Per-ms latency penalty
     constexpr float ANIMATION_LOCK_CONFIDENCE_BOOST = 0.3f; // Boost when immobile
 
@@ -109,10 +107,24 @@ namespace HybridPred
      * When behavior data is sparse, trust physics more. When abundant, blend equally.
      *
      * Formula: P = physics^w × behavior^(1-w) × confidence
-     * where w = physics weight based on sample quality
+     * where w = physics weight based on sample quality and staleness
+     *
+     * SPECIAL CASE: When physics = 1.0 (physically impossible to dodge),
+     * return guaranteed hit regardless of behavior (flash/dash handled by edge cases)
      */
-    inline float fuse_probabilities(float physics_prob, float behavior_prob, float confidence, size_t sample_count)
+    inline float fuse_probabilities(float physics_prob, float behavior_prob, float confidence, size_t sample_count, float time_since_update = 0.f)
     {
+        // CRITICAL: Guaranteed hit override
+        // If physics says escape is physically impossible (>= 99%), guarantee the hit
+        // Behavior should NOT reduce this (flash/dash handled by edge case confidence penalties)
+        constexpr float GUARANTEED_THRESHOLD = 0.99f;
+        if (physics_prob >= GUARANTEED_THRESHOLD)
+        {
+            // Physical escape impossible - return guaranteed hit
+            // Still apply confidence for edge cases (flash, spell shield, etc.)
+            return std::min(1.0f, confidence);  // Max 1.0, reduced only by edge cases
+        }
+
         // Determine fusion weight based on behavior sample quality
         float physics_weight = 0.5f;  // Default: equal weight
 
@@ -133,6 +145,16 @@ namespace HybridPred
         {
             // Abundant data: trust behavior more (physics weight = 0.3)
             physics_weight = 0.3f;
+        }
+
+        // Staleness detection: If velocity data hasn't updated recently, increase physics weight
+        // This handles cases where behavior tracker has stale data (target in fog, networking issues, etc.)
+        if (time_since_update > 0.5f)
+        {
+            // Ramp physics weight up based on staleness
+            // 0.5s → +0.1, 1.0s → +0.2, 1.5s+ → +0.3 (capped at 0.8 total)
+            float staleness_penalty = std::min(time_since_update - 0.5f, 1.0f) * 0.3f;
+            physics_weight = std::min(physics_weight + staleness_penalty, 0.8f);
         }
 
         // Weighted geometric mean
@@ -214,11 +236,17 @@ namespace HybridPred
 
     /**
      * Probability density function for behavior prediction
+     *
+     * NOTE: 32×32 grid with 25u cells provides good balance of performance vs precision.
+     * Future enhancement: Consider dynamic grid resolution based on prediction time:
+     *   - Short predictions (<0.5s): 48×48 or 64×64 for fine-grained juke detection
+     *   - Long predictions (>2s): 32×32 sufficient (broad movement patterns)
+     * Trade-off: 64×64 = 4x memory and computation cost (4096 vs 1024 cells)
      */
     struct BehaviorPDF
     {
         // 2D grid-based PDF (discretized for efficiency)
-        static constexpr int GRID_SIZE = 32;
+        static constexpr int GRID_SIZE = 32;  // 32×32 = 1024 cells, 800×800u coverage
         float cell_size;  // Dynamic cell size (units per cell) - adjusted per prediction
 
         float pdf_grid[GRID_SIZE][GRID_SIZE];
@@ -345,6 +373,9 @@ namespace HybridPred
         // Get current velocity
         math::vector3 get_current_velocity() const;
 
+        // Get last update time (for staleness detection)
+        float get_last_update_time() const { return last_update_time_; }
+
         // Opportunistic casting - get or create window for spell slot
         OpportunityWindow& get_opportunity_window(int spell_slot) const;
 
@@ -382,7 +413,8 @@ namespace HybridPred
             float prediction_time,
             float move_speed,
             float turn_rate = DEFAULT_TURN_RATE,
-            float acceleration = DEFAULT_ACCELERATION
+            float acceleration = DEFAULT_ACCELERATION,
+            float reaction_time = HUMAN_REACTION_TIME  // Subtract reaction time for realistic dodging
         );
 
         /**
@@ -395,14 +427,32 @@ namespace HybridPred
         );
 
         /**
-         * Compute physics-based hit probability
+         * Compute physics-based hit probability (area method)
          *
          * P_physics = (projectile_area ∩ reachable_area) / reachable_area
+         * Used for circular AoE spells where uniform distribution makes sense
          */
         static float compute_physics_hit_probability(
             const math::vector3& cast_position,
             float projectile_radius,
             const ReachableRegion& reachable_region
+        );
+
+        /**
+         * Compute physics-based hit probability (time-to-dodge method)
+         *
+         * Superior to area method for linear skillshots
+         * P_physics = time_needed_to_escape / time_available_to_dodge
+         *
+         * Returns 1.0 if target cannot physically escape in time
+         */
+        static float compute_time_to_dodge_probability(
+            const math::vector3& target_position,
+            const math::vector3& cast_position,
+            float projectile_radius,
+            float target_move_speed,
+            float arrival_time,
+            float reaction_time = HUMAN_REACTION_TIME
         );
 
         /**
@@ -648,7 +698,8 @@ namespace HybridPred
             const BehaviorPDF& behavior_pdf,
             const pred_sdk::spell_data& spell,
             float confidence,
-            size_t sample_count
+            size_t sample_count,
+            float time_since_update = 0.f
         );
 
         // Opportunistic casting - update result with opportunity signals

@@ -1,11 +1,6 @@
-// CRITICAL: Must be FIRST - disables iterator debugging in ALL builds (Debug AND Release)
-// This prevents linker error LNK2019: unresolved external symbol _CrtDbgReport
-// We MUST disable this even in Debug builds to avoid CRT library conflicts
-#undef _ITERATOR_DEBUG_LEVEL
-#define _ITERATOR_DEBUG_LEVEL 0
-
 #include "HybridPrediction.h"
 #include "EdgeCaseDetection.h"
+#include "PredictionSettings.h"
 #include <cmath>
 #include <cfloat>
 #include <algorithm>
@@ -121,6 +116,10 @@ namespace HybridPred
     void TargetBehaviorTracker::update()
     {
         if (!target_ || !target_->is_valid())
+            return;
+
+        // CRITICAL: Validate clock_facade before accessing
+        if (!g_sdk || !g_sdk->clock_facade)
             return;
 
         float current_time = g_sdk->clock_facade->get_game_time();
@@ -267,6 +266,10 @@ namespace HybridPred
         // PATTERN EXPIRATION: Reset pattern if no movement updates for 3+ seconds
         if (!movement_history_.empty())
         {
+            // CRITICAL: Validate clock_facade before accessing
+            if (!g_sdk || !g_sdk->clock_facade)
+                return;
+
             float current_time = g_sdk->clock_facade->get_game_time();
             float last_movement_time = movement_history_.back().timestamp;
             constexpr float PATTERN_EXPIRY_DURATION = 3.0f;  // 3 seconds of inactivity
@@ -300,11 +303,16 @@ namespace HybridPred
             math::vector3 curr_dir = curr.velocity.normalized();
 
             // Cross product Y component determines left (-1) or right (1)
+            // Higher threshold filters out pathfinding micro-corrections vs intentional dodges
             float cross_y = prev_dir.x * curr_dir.z - prev_dir.z * curr_dir.x;
 
-            if (cross_y > 0.15f)
+            // Threshold: 0.25 ≈ sin(14.5°) filters noise, captures deliberate jukes
+            // Old: 0.15 (~8.5°) was too sensitive, caught micro-adjustments as jukes
+            constexpr float JUKE_THRESHOLD = 0.25f;
+
+            if (cross_y > JUKE_THRESHOLD)
                 dodge_pattern_.juke_sequence.push_back(-1);  // Left
-            else if (cross_y < -0.15f)
+            else if (cross_y < -JUKE_THRESHOLD)
                 dodge_pattern_.juke_sequence.push_back(1);   // Right
             else
                 dodge_pattern_.juke_sequence.push_back(0);   // Straight
@@ -898,19 +906,44 @@ namespace HybridPred
         float prediction_time,
         float move_speed,
         float turn_rate,
-        float acceleration)
+        float acceleration,
+        float reaction_time)
     {
         ReachableRegion region;
-        region.center = current_pos;
 
-        if (prediction_time < EPSILON)
+        // =====================================================================
+        // CRITICAL FIX: Account for INERTIA during reaction time
+        // =====================================================================
+        // Humans don't freeze during reaction time - they continue drifting
+        // in their current direction due to inertia!
+        //
+        // Example: Target moving right at 400 MS, spell lands in 0.5s
+        //   - Reaction time: 0.25s
+        //   - During reaction: Drifts 100 units right (400 * 0.25)
+        //   - Reachable center: current_pos + (100, 0)
+        //   - NOT current_pos!
+        //
+        // Without this: System aims behind moving targets on fast spells
+        // =====================================================================
+        float non_reactive_time = std::min(prediction_time, reaction_time);
+        math::vector3 drift_offset = current_velocity * non_reactive_time;
+        region.center = current_pos + drift_offset;
+
+        // CRITICAL FIX: Subtract reaction time from prediction time
+        // Humans cannot react instantly - they need 200-300ms to see and respond
+        // This dramatically reduces reachable area for realistic predictions
+        float effective_dodge_time = std::max(0.f, prediction_time - reaction_time);
+
+        if (effective_dodge_time < EPSILON)
         {
+            // No time to dodge - region is essentially current position
             region.max_radius = 0.f;
             region.area = 0.f;
             return region;
         }
 
         // Maximum distance considering acceleration from current velocity
+        // Now uses EFFECTIVE dodge time (with reaction time subtracted)
         float current_speed = current_velocity.magnitude();
         float speed_diff = move_speed - current_speed;
 
@@ -918,14 +951,14 @@ namespace HybridPred
         if (speed_diff > 0.f && acceleration > 0.f)
         {
             // Time to reach max speed
-            float accel_time = std::min(speed_diff / acceleration, prediction_time);
+            float accel_time = std::min(speed_diff / acceleration, effective_dodge_time);
 
             // Distance during acceleration: d = v₀*t + 0.5*a*t²
             float accel_distance = current_speed * accel_time +
                 0.5f * acceleration * accel_time * accel_time;
 
             // Distance at max speed
-            float max_speed_time = prediction_time - accel_time;
+            float max_speed_time = effective_dodge_time - accel_time;
             float max_speed_distance = move_speed * max_speed_time;
 
             max_distance = accel_distance + max_speed_distance;
@@ -933,7 +966,7 @@ namespace HybridPred
         else
         {
             // Already at or above max speed (or instant speed)
-            max_distance = move_speed * prediction_time;
+            max_distance = move_speed * effective_dodge_time;
         }
 
         region.max_radius = max_distance;
@@ -945,11 +978,12 @@ namespace HybridPred
         (void)turn_rate; // Suppress unused parameter warning
 
         // Discretize boundary (circle approximation - full 360° reachability)
+        // Boundary points centered at drift-adjusted position (region.center)
         constexpr int BOUNDARY_POINTS = 32;
         for (int i = 0; i < BOUNDARY_POINTS; ++i)
         {
             float angle = (2.f * PI * i) / BOUNDARY_POINTS;
-            math::vector3 boundary_point = current_pos;
+            math::vector3 boundary_point = region.center;  // Use drift-adjusted center
             boundary_point.x += max_distance * std::cos(angle);
             boundary_point.z += max_distance * std::sin(angle);
             region.boundary_points.push_back(boundary_point);
@@ -974,17 +1008,181 @@ namespace HybridPred
         float projectile_radius,
         const ReachableRegion& reachable_region)
     {
+        // CRITICAL: Check for zero area - target cannot dodge
         if (reachable_region.area < EPSILON)
-            return 0.f;
+            return 1.0f;  // No dodge time = guaranteed hit
 
-        // Compute intersection area between projectile circle and reachable circle
+        // Distance from cast position to predicted target center
+        float distance = (cast_position - reachable_region.center).magnitude();
+
+        // Gaussian kernel: target most likely at predicted center
+        // σ = max_radius / 2.5 (so ~95% within max_radius)
+        float sigma = reachable_region.max_radius / 2.5f;
+        if (sigma < 1.0f)
+            sigma = 1.0f;  // Minimum sigma to avoid numerical issues
+
+        // Gaussian weight (clamped to avoid exp overflow)
+        float exponent = -(distance * distance) / (2.0f * sigma * sigma);
+        exponent = std::max(-50.0f, exponent);  // Clamp to prevent underflow
+        float gaussian_weight = std::exp(exponent);
+
+        // Compute intersection area
         float intersection_area = circle_circle_intersection_area(
             cast_position, projectile_radius,
             reachable_region.center, reachable_region.max_radius
         );
 
-        // Probability = intersection / reachable area
-        return std::min(1.f, intersection_area / reachable_region.area);
+        // Weight area probability by Gaussian
+        float area_probability = intersection_area / reachable_region.area;
+        float weighted_probability = gaussian_weight * area_probability;
+
+        // Bonus if predicted center is inside projectile
+        if (distance < projectile_radius)
+        {
+            weighted_probability = std::max(weighted_probability, gaussian_weight * 0.85f);
+        }
+
+        return std::min(1.f, weighted_probability);
+    }
+
+    float PhysicsPredictor::compute_time_to_dodge_probability(
+        const math::vector3& target_position,
+        const math::vector3& cast_position,
+        float projectile_radius,
+        float target_move_speed,
+        float arrival_time,
+        float reaction_time)
+    {
+        /**
+         * Time-to-Dodge Physics Probability
+         * ==================================
+         *
+         * Instead of area intersection, we measure: "Can the target physically escape?"
+         *
+         * Algorithm:
+         * 1. Find distance from target to edge of spell hitbox
+         * 2. Calculate time needed to run that distance
+         * 3. Compare to time available (arrival - reaction)
+         * 4. Return ratio (or 1.0 if impossible to dodge)
+         *
+         * Benefits:
+         * - Returns 1.0 (guaranteed hit) when escape is physically impossible
+         * - Intuitive: 90% of dodge time needed = 90% physics probability
+         * - No arbitrary area ratios
+         * - Accounts for human reaction time
+         *
+         * NOTE: Current implementation assumes instant turn rate (valid for League).
+         * Future enhancement: Account for velocity direction when calculating escape time.
+         * If target is moving INTO spell, they need to decelerate then accelerate out:
+         *   time_needed = decel_time + accel_time + (distance / move_speed)
+         * This adds ~20-35% to escape time for targets moving into the spell.
+         * Trade-off: Current simplification acceptable for performance.
+         */
+
+        // Validate inputs
+        if (target_move_speed < EPSILON || arrival_time < EPSILON)
+            return 0.f;
+
+        // Calculate distance from target to spell center
+        float distance_to_center = (target_position - cast_position).magnitude();
+
+        // Calculate distance to escape (distance to edge of hitbox)
+        // If target is outside spell, they're already safe
+        if (distance_to_center >= projectile_radius)
+            return 0.f;
+
+        // Distance needed to run to safety
+        float distance_to_edge = projectile_radius - distance_to_center;
+
+        // CRITICAL: Check for zero move speed to avoid division by zero
+        if (target_move_speed < EPSILON)
+            return 1.0f;  // Can't move = guaranteed hit
+
+        // Time needed to escape
+        float time_needed_to_escape = distance_to_edge / target_move_speed;
+
+        // Time available to dodge (subtract reaction time)
+        float time_available = arrival_time - reaction_time;
+
+        // If reaction time >= arrival time, target has no time to react
+        if (time_available <= 0.f)
+            return 1.0f;  // Guaranteed hit
+
+        // If they cannot physically escape in time, guaranteed hit
+        if (time_needed_to_escape >= time_available)
+            return 1.0f;
+
+        // =====================================================================
+        // TERRAIN BLOCKING DETECTION (Choke Point / Wall Trap Detection)
+        // =====================================================================
+        // Check if target is trapped against walls/terrain by testing escape paths
+        // perpendicular to the spell's aim direction. This significantly improves
+        // accuracy in common scenarios:
+        //   - Jungle fights (narrow paths between walls)
+        //   - Tower dives (wall behind target)
+        //   - River choke points
+        //   - Lane edge positioning
+        //
+        // Logic:
+        //   - Both sides blocked → 1.0 (trapped, guaranteed hit)
+        //   - One side blocked → 1.5x probability (predictable dodge direction)
+        //   - Both sides open → normal probability
+        // =====================================================================
+
+        // Calculate aim direction (from spell center to target)
+        math::vector3 aim_dir = (target_position - cast_position);
+        float aim_magnitude = aim_dir.magnitude();
+
+        // CRITICAL: Check nav_mesh is available before using it
+        if (aim_magnitude > EPSILON && g_sdk && g_sdk->nav_mesh)
+        {
+            aim_dir = aim_dir / aim_magnitude;  // Normalize
+
+            // Calculate perpendicular escape directions (left and right)
+            // For 2D plane (y is up in League), perpendicular is rotation in xz plane
+            math::vector3 escape_dir_left(-aim_dir.z, 0.f, aim_dir.x);   // 90° left
+            math::vector3 escape_dir_right(aim_dir.z, 0.f, -aim_dir.x);  // 90° right
+
+            // Calculate escape points (slightly beyond spell edge for safety margin)
+            constexpr float SAFETY_MARGIN = 20.f;  // Extra distance for safe dodging
+            float escape_distance = distance_to_edge + SAFETY_MARGIN;
+
+            math::vector3 escape_point_left = target_position + escape_dir_left * escape_distance;
+            math::vector3 escape_point_right = target_position + escape_dir_right * escape_distance;
+
+            // Check if escape paths are walkable using nav mesh
+            bool can_dodge_left = g_sdk->nav_mesh->is_pathable(escape_point_left);
+            bool can_dodge_right = g_sdk->nav_mesh->is_pathable(escape_point_right);
+
+            // Trapped against wall on both sides = guaranteed hit
+            if (!can_dodge_left && !can_dodge_right)
+            {
+                return 1.0f;  // TRAPPED!
+            }
+
+            // One side blocked = predictable dodge direction
+            // Target MUST dodge to the open side, increasing hit probability
+            if (!can_dodge_left || !can_dodge_right)
+            {
+                float probability = time_needed_to_escape / time_available;
+                return std::clamp(probability * 1.5f, 0.f, 1.f);  // 50% boost
+            }
+        }
+
+        // Sigmoid function for realistic dodge difficulty curve
+        // Linear ratio doesn't capture human dodge thresholds well
+        float ratio = time_needed_to_escape / time_available;
+
+        constexpr float SIGMOID_STEEPNESS = 40.f;
+        constexpr float SIGMOID_MIDPOINT = 0.80f;
+
+        // Clamp exponent to prevent overflow/underflow
+        float exponent = -SIGMOID_STEEPNESS * (ratio - SIGMOID_MIDPOINT);
+        exponent = std::clamp(exponent, -50.0f, 50.0f);
+
+        float sigmoid_probability = 1.0f / (1.0f + std::exp(exponent));
+
+        return std::clamp(sigmoid_probability, 0.f, 1.f);
     }
 
     float PhysicsPredictor::compute_arrival_time(
@@ -1082,13 +1280,38 @@ namespace HybridPred
         float radius_sq = projectile_radius * projectile_radius;
         float prob = 0.f;
 
-        for (int x = 0; x < BehaviorPDF::GRID_SIZE; ++x)
+        // PERFORMANCE OPTIMIZATION: Calculate bounding box of circle in grid coordinates
+        // Only iterate cells that could possibly be inside the circle
+        // This reduces checks from 1024 (32×32) down to ~20-80 cells (10-50x speedup!)
+
+        // Find min/max world coordinates of circle bounding box
+        float min_wx = cast_position.x - projectile_radius;
+        float max_wx = cast_position.x + projectile_radius;
+        float min_wz = cast_position.z - projectile_radius;
+        float max_wz = cast_position.z + projectile_radius;
+
+        // Convert world coordinates to grid coordinates
+        int grid_center = BehaviorPDF::GRID_SIZE / 2;
+
+        int min_x = static_cast<int>((min_wx - pdf.origin.x) / pdf.cell_size) + grid_center;
+        int max_x = static_cast<int>((max_wx - pdf.origin.x) / pdf.cell_size) + grid_center + 1;
+        int min_z = static_cast<int>((min_wz - pdf.origin.z) / pdf.cell_size) + grid_center;
+        int max_z = static_cast<int>((max_wz - pdf.origin.z) / pdf.cell_size) + grid_center + 1;
+
+        // Clamp to grid bounds [0, GRID_SIZE)
+        min_x = std::max(0, min_x);
+        max_x = std::min(BehaviorPDF::GRID_SIZE, max_x);
+        min_z = std::max(0, min_z);
+        max_z = std::min(BehaviorPDF::GRID_SIZE, max_z);
+
+        // Iterate ONLY cells within bounding box (much faster!)
+        for (int x = min_x; x < max_x; ++x)
         {
-            for (int z = 0; z < BehaviorPDF::GRID_SIZE; ++z)
+            for (int z = min_z; z < max_z; ++z)
             {
                 // World position of cell center
-                float wx = pdf.origin.x + (x - BehaviorPDF::GRID_SIZE / 2 + 0.5f) * pdf.cell_size;
-                float wz = pdf.origin.z + (z - BehaviorPDF::GRID_SIZE / 2 + 0.5f) * pdf.cell_size;
+                float wx = pdf.origin.x + (x - grid_center + 0.5f) * pdf.cell_size;
+                float wz = pdf.origin.z + (z - grid_center + 0.5f) * pdf.cell_size;
 
                 // Check if cell center is inside hit circle
                 float dx = wx - cast_position.x;
@@ -1294,7 +1517,7 @@ namespace HybridPred
         }
 
         // Handle dash prediction - ENDPOINT WITH TIMING VALIDATION (if enabled)
-        if (edge_cases.dash.is_dashing && PredictionConfig::get().enable_dash_prediction)
+        if (edge_cases.dash.is_dashing && PredictionSettings::get().enable_dash_prediction)
         {
             float spell_travel_time = PhysicsPredictor::compute_arrival_time(
                 source->get_position(),
@@ -1319,10 +1542,21 @@ namespace HybridPred
             }
             else
             {
-                // Spell arrives AFTER dash ends - predict at endpoint
-                // This will be used by the spell-specific prediction below
-                // We'll continue to normal prediction but with dash adjustments
-                result.reasoning = "Dash endpoint prediction active";
+                // FIX: Spell arrives AFTER dash ends - RETURN ENDPOINT IMMEDIATELY
+                // Don't run physics/behavior on dashing unit - they WILL stop at endpoint
+                // Treat like stasis: guaranteed position, high confidence
+                result.cast_position = edge_cases.dash.dash_end_position;
+                result.hit_chance = 1.0f * edge_cases.dash.confidence_multiplier;
+                result.physics_contribution = 1.0f;
+                result.behavior_contribution = 1.0f;  // Forced movement = 100% predictable
+                result.confidence_score = edge_cases.dash.confidence_multiplier;
+                result.is_valid = true;
+                result.reasoning = "DASH ENDPOINT - Aiming at confirmed stop position after dash completes";
+
+                // Update opportunity signals before returning
+                update_opportunity_signals(result, source, spell, tracker);
+
+                return result;
             }
         }
 
@@ -1472,7 +1706,9 @@ namespace HybridPred
 
         // Weighted geometric fusion (trust physics more when behavior samples are sparse)
         size_t sample_count = tracker.get_history().size();
-        result.hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count);
+        float current_time = g_sdk->clock_facade->get_game_time();
+        float time_since_update = current_time - tracker.get_last_update_time();
+        result.hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count, time_since_update);
 
         // Clamp to [0, 1]
         result.hit_chance = std::clamp(result.hit_chance, 0.f, 1.f);
@@ -1795,6 +2031,11 @@ namespace HybridPred
         float confidence = compute_confidence_score(source, target, spell, tracker, edge_cases);
         result.confidence_score = confidence;
 
+        // Compute staleness for fusion
+        float current_time = g_sdk->clock_facade->get_game_time();
+        float time_since_update = current_time - tracker.get_last_update_time();
+        size_t sample_count = tracker.get_history().size();
+
         // Step 5: Compute capsule parameters
         // Linear spell = capsule from source toward target
         math::vector3 to_target = target->get_position() - source->get_position();
@@ -1813,47 +2054,95 @@ namespace HybridPred
         float capsule_length = spell.range;
         float capsule_radius = spell.radius;
 
-        // For linear spells, cast position is the source position (spell shoots in direction)
-        // But we need to find optimal direction
+        // For linear spells, find optimal direction using angular search
+        // Test multiple angles (±10°) around the predicted center to maximize hit probability
         math::vector3 to_center = reachable_region.center - source->get_position();
         float dist_to_center = to_center.magnitude();
 
-        math::vector3 optimal_direction;
+        math::vector3 base_direction;
         if (dist_to_center > MIN_SAFE_DISTANCE)
         {
-            optimal_direction = to_center / dist_to_center;  // Safe manual normalize
+            base_direction = to_center / dist_to_center;  // Safe manual normalize
         }
         else
         {
-            optimal_direction = direction;  // Fallback to target direction
+            base_direction = direction;  // Fallback to target direction
+        }
+
+        // Angular optimization: Test ±10° around base direction
+        constexpr int NUM_ANGLE_TESTS = 7;  // Test: -10°, -6.67°, -3.33°, 0°, +3.33°, +6.67°, +10°
+        constexpr float MAX_ANGLE_DEVIATION = 10.f * (PI / 180.f);  // ±10° in radians
+
+        float best_hit_chance = 0.f;
+        math::vector3 optimal_direction = base_direction;
+        float best_physics_prob = 0.f;
+        float best_behavior_prob = 0.f;
+
+        for (int i = 0; i < NUM_ANGLE_TESTS; ++i)
+        {
+            // Calculate angle offset from -MAX_ANGLE_DEVIATION to +MAX_ANGLE_DEVIATION
+            float angle_offset = (i - NUM_ANGLE_TESTS / 2) * (2.f * MAX_ANGLE_DEVIATION / (NUM_ANGLE_TESTS - 1));
+
+            // Rotate base_direction around Y axis by angle_offset
+            // Using 2D rotation in XZ plane (Y is up in League)
+            float cos_angle = std::cos(angle_offset);
+            float sin_angle = std::sin(angle_offset);
+            math::vector3 test_direction(
+                base_direction.x * cos_angle - base_direction.z * sin_angle,
+                base_direction.y,
+                base_direction.x * sin_angle + base_direction.z * cos_angle
+            );
+
+            // Compute hit probability for this angle using time-to-dodge method
+            // This is superior to area intersection for linear skillshots
+            math::vector3 test_cast_pos = capsule_start + test_direction * capsule_length;
+            float test_physics_prob = PhysicsPredictor::compute_time_to_dodge_probability(
+                target->get_position(),  // Current target position
+                test_cast_pos,           // Where spell will be
+                capsule_radius,          // Spell hitbox radius
+                move_speed,              // Target move speed
+                arrival_time,            // Time until spell arrives
+                HUMAN_REACTION_TIME      // 250ms reaction time
+            );
+
+            float test_behavior_prob = compute_capsule_behavior_probability(
+                capsule_start,
+                test_direction,
+                capsule_length,
+                capsule_radius,
+                behavior_pdf
+            );
+
+            // Fuse probabilities to get overall hit chance
+            float test_hit_chance = fuse_probabilities(
+                test_physics_prob,
+                test_behavior_prob,
+                confidence,
+                sample_count,
+                time_since_update
+            );
+
+            // Track best configuration
+            if (test_hit_chance > best_hit_chance)
+            {
+                best_hit_chance = test_hit_chance;
+                optimal_direction = test_direction;
+                best_physics_prob = test_physics_prob;
+                best_behavior_prob = test_behavior_prob;
+            }
         }
 
         result.cast_position = source->get_position() + optimal_direction * capsule_length;
 
-        // Step 6: Compute hit probabilities for capsule
-        float physics_prob = compute_capsule_reachability_overlap(
-            capsule_start,
-            optimal_direction,
-            capsule_length,
-            capsule_radius,
-            reachable_region
-        );
-
-        float behavior_prob = compute_capsule_behavior_probability(
-            capsule_start,
-            optimal_direction,
-            capsule_length,
-            capsule_radius,
-            behavior_pdf
-        );
+        // Use best probabilities found
+        float physics_prob = best_physics_prob;
+        float behavior_prob = best_behavior_prob;
 
         result.physics_contribution = physics_prob;
         result.behavior_contribution = behavior_prob;
 
-        // Weighted geometric fusion (trust physics more when behavior samples are sparse)
-        size_t sample_count = tracker.get_history().size();
-        result.hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count);
-        result.hit_chance = std::clamp(result.hit_chance, 0.f, 1.f);
+        // Use best hit chance from angular optimization
+        result.hit_chance = std::clamp(best_hit_chance, 0.f, 1.f);
 
 #if HYBRID_PRED_ENABLE_REASONING
         // Generate mathematical reasoning
@@ -1974,6 +2263,8 @@ namespace HybridPred
         // Step 5: Optimize vector orientation
         // Test multiple orientations to find best two-position configuration
         size_t sample_count = tracker.get_history().size();
+        float current_time = g_sdk->clock_facade->get_game_time();
+        float time_since_update = current_time - tracker.get_last_update_time();
         VectorConfiguration best_config = optimize_vector_orientation(
             source,
             reachable_region.center,
@@ -1981,7 +2272,8 @@ namespace HybridPred
             behavior_pdf,
             spell,
             confidence,
-            sample_count
+            sample_count,
+            time_since_update
         );
 
         // Step 6: Set result from best configuration
@@ -2122,7 +2414,9 @@ namespace HybridPred
 
         // Weighted geometric fusion (trust physics more when behavior samples are sparse)
         size_t sample_count = tracker.get_history().size();
-        result.hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count);
+        float current_time = g_sdk->clock_facade->get_game_time();
+        float time_since_update = current_time - tracker.get_last_update_time();
+        result.hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count, time_since_update);
         result.hit_chance = std::clamp(result.hit_chance, 0.f, 1.f);
 
 #if HYBRID_PRED_ENABLE_REASONING
@@ -2243,13 +2537,39 @@ namespace HybridPred
         math::vector3 capsule_end = capsule_start + capsule_direction * capsule_length;
         float prob = 0.f;
 
-        for (int x = 0; x < BehaviorPDF::GRID_SIZE; ++x)
+        // PERFORMANCE OPTIMIZATION: Calculate bounding box of capsule in grid coordinates
+        // Only iterate cells that could possibly intersect with the capsule
+        // This reduces checks from 1024 (32×32) down to ~50-100 cells (10-20x speedup!)
+
+        // Find min/max world coordinates of capsule bounding box
+        float min_wx = std::min(capsule_start.x, capsule_end.x) - capsule_radius;
+        float max_wx = std::max(capsule_start.x, capsule_end.x) + capsule_radius;
+        float min_wz = std::min(capsule_start.z, capsule_end.z) - capsule_radius;
+        float max_wz = std::max(capsule_start.z, capsule_end.z) + capsule_radius;
+
+        // Convert world coordinates to grid coordinates
+        // Grid formula: grid_coord = (world_coord - origin) / cell_size + GRID_SIZE/2
+        int grid_center = BehaviorPDF::GRID_SIZE / 2;
+
+        int min_x = static_cast<int>((min_wx - pdf.origin.x) / pdf.cell_size) + grid_center;
+        int max_x = static_cast<int>((max_wx - pdf.origin.x) / pdf.cell_size) + grid_center + 1;
+        int min_z = static_cast<int>((min_wz - pdf.origin.z) / pdf.cell_size) + grid_center;
+        int max_z = static_cast<int>((max_wz - pdf.origin.z) / pdf.cell_size) + grid_center + 1;
+
+        // Clamp to grid bounds [0, GRID_SIZE)
+        min_x = std::max(0, min_x);
+        max_x = std::min(BehaviorPDF::GRID_SIZE, max_x);
+        min_z = std::max(0, min_z);
+        max_z = std::min(BehaviorPDF::GRID_SIZE, max_z);
+
+        // Iterate ONLY cells within bounding box (much faster!)
+        for (int x = min_x; x < max_x; ++x)
         {
-            for (int z = 0; z < BehaviorPDF::GRID_SIZE; ++z)
+            for (int z = min_z; z < max_z; ++z)
             {
                 // World position of cell center
-                float wx = pdf.origin.x + (x - BehaviorPDF::GRID_SIZE / 2 + 0.5f) * pdf.cell_size;
-                float wz = pdf.origin.z + (z - BehaviorPDF::GRID_SIZE / 2 + 0.5f) * pdf.cell_size;
+                float wx = pdf.origin.x + (x - grid_center + 0.5f) * pdf.cell_size;
+                float wz = pdf.origin.z + (z - grid_center + 0.5f) * pdf.cell_size;
                 math::vector3 cell_center(wx, pdf.origin.y, wz);
 
                 // Check if cell center is inside capsule
@@ -2353,13 +2673,44 @@ namespace HybridPred
         // Sum probability mass of all cells whose centers fall inside the cone
         float prob = 0.f;
 
-        for (int x = 0; x < BehaviorPDF::GRID_SIZE; ++x)
+        // PERFORMANCE OPTIMIZATION: Calculate bounding box of cone in grid coordinates
+        // Only iterate cells that could possibly be inside the cone
+        // Cone bounding box: origin to (origin + direction * range) ± lateral_extent
+
+        // Calculate cone endpoint
+        math::vector3 cone_end = cone_origin + cone_direction * cone_range;
+
+        // Calculate maximum lateral extent at the cone's end (perpendicular to direction)
+        float lateral_extent = cone_range * std::tan(cone_half_angle);
+
+        // Find min/max world coordinates of cone bounding box
+        float min_wx = std::min(cone_origin.x, cone_end.x) - lateral_extent;
+        float max_wx = std::max(cone_origin.x, cone_end.x) + lateral_extent;
+        float min_wz = std::min(cone_origin.z, cone_end.z) - lateral_extent;
+        float max_wz = std::max(cone_origin.z, cone_end.z) + lateral_extent;
+
+        // Convert world coordinates to grid coordinates
+        int grid_center = BehaviorPDF::GRID_SIZE / 2;
+
+        int min_x = static_cast<int>((min_wx - pdf.origin.x) / pdf.cell_size) + grid_center;
+        int max_x = static_cast<int>((max_wx - pdf.origin.x) / pdf.cell_size) + grid_center + 1;
+        int min_z = static_cast<int>((min_wz - pdf.origin.z) / pdf.cell_size) + grid_center;
+        int max_z = static_cast<int>((max_wz - pdf.origin.z) / pdf.cell_size) + grid_center + 1;
+
+        // Clamp to grid bounds [0, GRID_SIZE)
+        min_x = std::max(0, min_x);
+        max_x = std::min(BehaviorPDF::GRID_SIZE, max_x);
+        min_z = std::max(0, min_z);
+        max_z = std::min(BehaviorPDF::GRID_SIZE, max_z);
+
+        // Iterate ONLY cells within bounding box (much faster!)
+        for (int x = min_x; x < max_x; ++x)
         {
-            for (int z = 0; z < BehaviorPDF::GRID_SIZE; ++z)
+            for (int z = min_z; z < max_z; ++z)
             {
                 // World position of cell center
-                float wx = pdf.origin.x + (x - BehaviorPDF::GRID_SIZE / 2 + 0.5f) * pdf.cell_size;
-                float wz = pdf.origin.z + (z - BehaviorPDF::GRID_SIZE / 2 + 0.5f) * pdf.cell_size;
+                float wx = pdf.origin.x + (x - grid_center + 0.5f) * pdf.cell_size;
+                float wz = pdf.origin.z + (z - grid_center + 0.5f) * pdf.cell_size;
                 math::vector3 cell_center(wx, pdf.origin.y, wz);
 
                 // Check if cell center is inside cone
@@ -2385,7 +2736,8 @@ namespace HybridPred
         const BehaviorPDF& behavior_pdf,
         const pred_sdk::spell_data& spell,
         float confidence,
-        size_t sample_count)
+        size_t sample_count,
+        float time_since_update)
     {
         /**
          * Vector Spell Optimization Algorithm
@@ -2442,18 +2794,28 @@ namespace HybridPred
             float distance_to_first_cast = (first_cast - source_pos).magnitude();
             if (distance_to_first_cast > max_first_cast_range)
             {
-                // Adjust: Move line closer to source while maintaining orientation
-                // Place first_cast at max_first_cast_range in direction of predicted target
-                if (dist_to_predicted > EPSILON)
+                // Adjust: Slide line along orientation direction towards source
+                // This maintains the line's orientation while bringing first_cast within range
+
+                // Calculate how much to slide the line towards source
+                float overshoot = distance_to_first_cast - max_first_cast_range;
+
+                // Slide both points along the line's direction (towards source)
+                // Direction from first_cast to source along the line's orientation
+                math::vector3 to_first_cast = first_cast - source_pos;
+                float dot_product = to_first_cast.dot(direction);
+
+                // Project onto line direction and slide
+                math::vector3 slide_offset = direction * overshoot;
+                first_cast = first_cast - slide_offset;
+                second_cast = second_cast - slide_offset;
+
+                // Verify first_cast is now within range (safety check)
+                float new_distance = (first_cast - source_pos).magnitude();
+                if (new_distance > max_first_cast_range)
                 {
-                    math::vector3 to_target = to_predicted / dist_to_predicted;  // Safe manual normalize
-                    first_cast = source_pos + to_target * max_first_cast_range;
-                    second_cast = first_cast + direction * vector_length;
-                }
-                else
-                {
-                    // Target too close - use default forward direction
-                    first_cast = source_pos + direction * std::min(max_first_cast_range, vector_length * 0.5f);
+                    // Fallback: place first_cast at max range in line direction
+                    first_cast = source_pos + direction * max_first_cast_range;
                     second_cast = first_cast + direction * vector_length;
                 }
             }
@@ -2476,7 +2838,7 @@ namespace HybridPred
             );
 
             // Weighted geometric fusion (trust physics more when behavior samples are sparse)
-            float hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count);
+            float hit_chance = fuse_probabilities(physics_prob, behavior_prob, confidence, sample_count, time_since_update);
 
             // Update best configuration
             if (hit_chance > best_config.hit_chance)
