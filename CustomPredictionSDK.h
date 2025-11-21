@@ -116,7 +116,33 @@ public:
      * @param priority_weighted Weight by target priority (carries > tanks)
      * @return AOE prediction result with optimal position and expected hits
      */
+    /**
+     * Predict optimal cast position for circular AOE spell
+     */
     aoe_pred_result predict_aoe_cluster(
+        pred_sdk::spell_data spell_data,
+        int min_hits = 2,
+        float min_single_hc = 0.25f,
+        bool priority_weighted = false
+    );
+
+    /**
+     * Predict optimal cast direction for linear AOE spell
+     * Returns cast_position at end of line (max range in best direction)
+     */
+    aoe_pred_result predict_linear_aoe(
+        pred_sdk::spell_data spell_data,
+        int min_hits = 2,
+        float min_single_hc = 0.25f,
+        bool priority_weighted = false
+    );
+
+    /**
+     * Auto-routing AOE prediction based on spell_type
+     * - circular -> predict_aoe_cluster
+     * - linear/vector -> predict_linear_aoe
+     */
+    aoe_pred_result predict_aoe(
         pred_sdk::spell_data spell_data,
         int min_hits = 2,
         float min_single_hc = 0.25f,

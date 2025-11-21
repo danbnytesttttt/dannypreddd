@@ -1048,6 +1048,226 @@ CustomPredictionSDK::aoe_pred_result CustomPredictionSDK::predict_aoe_cluster(
     return result;
 }
 
+// =============================================================================
+// LINEAR AOE PREDICTION (MULTI-TARGET LINE)
+// =============================================================================
+
+CustomPredictionSDK::aoe_pred_result CustomPredictionSDK::predict_linear_aoe(
+    pred_sdk::spell_data spell_data,
+    int min_hits,
+    float min_single_hc,
+    bool priority_weighted)
+{
+    CustomPredictionSDK::aoe_pred_result result;
+
+    try
+    {
+        if (!g_sdk || !g_sdk->object_manager)
+            return result;
+
+        if (!spell_data.source || !spell_data.source->is_valid())
+        {
+            spell_data.source = g_sdk->object_manager->get_local_player();
+            if (!spell_data.source)
+                return result;
+        }
+
+        math::vector3 source_pos = spell_data.source->get_position();
+
+        // Step 1: Get targets and their predictions
+        struct TargetPrediction
+        {
+            game_object* target;
+            math::vector3 predicted_pos;
+            float hit_chance;
+            float priority;
+        };
+        std::vector<TargetPrediction> candidates;
+
+        std::vector<game_object*> enemy_list;
+        if (sdk::target_selector)
+        {
+            auto sorted = sdk::target_selector->get_sorted_heroes();
+            for (auto* hero : sorted)
+            {
+                if (hero && hero->is_valid() && !hero->is_dead() &&
+                    hero->get_team_id() != spell_data.source->get_team_id())
+                {
+                    enemy_list.push_back(hero);
+                }
+            }
+        }
+
+        if (enemy_list.empty())
+        {
+            auto heroes = g_sdk->object_manager->get_heroes();
+            for (auto* hero : heroes)
+            {
+                if (hero && hero->is_valid() && !hero->is_dead() &&
+                    hero->get_team_id() != spell_data.source->get_team_id())
+                {
+                    enemy_list.push_back(hero);
+                }
+            }
+        }
+
+        for (size_t i = 0; i < enemy_list.size(); ++i)
+        {
+            game_object* hero = enemy_list[i];
+
+            if (!hero->is_visible())
+                continue;
+
+            float dist = hero->get_position().distance(source_pos);
+            if (dist > spell_data.range + 200.f)
+                continue;
+
+            pred_sdk::pred_data pred = predict(hero, spell_data);
+            if (!pred.is_valid)
+                continue;
+
+            float hc = 0.f;
+            switch (pred.hitchance)
+            {
+            case pred_sdk::hitchance::very_high: hc = 0.9f; break;
+            case pred_sdk::hitchance::high: hc = 0.7f; break;
+            case pred_sdk::hitchance::medium: hc = 0.5f; break;
+            case pred_sdk::hitchance::low: hc = 0.3f; break;
+            default: hc = 0.1f; break;
+            }
+
+            if (hc < min_single_hc)
+                continue;
+
+            float priority = 1.0f;
+            if (priority_weighted)
+            {
+                priority = 1.0f + std::max(0.f, 0.5f - (i * 0.1f));
+            }
+
+            candidates.push_back({hero, pred.cast_position, hc, priority});
+        }
+
+        result.targets_in_range = static_cast<int>(candidates.size());
+
+        if (candidates.size() < static_cast<size_t>(min_hits))
+            return result;
+
+        // Step 2: Test each target position as potential cast direction
+        // For linear spells, cast_position is the END of the line
+        math::vector3 best_pos;
+        float best_score = -1.f;
+        std::vector<game_object*> best_hit_targets;
+        std::vector<float> best_hit_chances;
+
+        for (const auto& primary : candidates)
+        {
+            // Direction from source to this target
+            math::vector3 dir = primary.predicted_pos - source_pos;
+            float dist = dir.magnitude();
+            if (dist < 0.001f)
+                continue;
+            dir = dir / dist;
+
+            // Cast position is at max range in this direction
+            math::vector3 cast_pos = source_pos + dir * spell_data.range;
+
+            // Check which targets this line would hit
+            float score = 0.f;
+            std::vector<game_object*> hits;
+            std::vector<float> hcs;
+
+            for (const auto& c : candidates)
+            {
+                // Point-to-line distance check
+                math::vector3 to_target = c.predicted_pos - source_pos;
+                float projection = to_target.dot(dir);
+
+                // Must be in front (positive projection) and within range
+                if (projection < 0.f || projection > spell_data.range)
+                    continue;
+
+                // Calculate perpendicular distance to line
+                math::vector3 closest_on_line = source_pos + dir * projection;
+                float perp_dist = c.predicted_pos.distance(closest_on_line);
+
+                // Hit if within spell radius + target hitbox
+                float target_radius = c.target->get_bounding_radius();
+                if (perp_dist <= spell_data.radius + target_radius)
+                {
+                    float contrib = c.hit_chance * c.priority;
+                    score += contrib;
+                    hits.push_back(c.target);
+                    hcs.push_back(c.hit_chance);
+                }
+            }
+
+            if (score > best_score && hits.size() >= static_cast<size_t>(min_hits))
+            {
+                best_score = score;
+                best_pos = cast_pos;
+                best_hit_targets = hits;
+                best_hit_chances = hcs;
+            }
+        }
+
+        // Step 3: Populate result
+        if (best_hit_targets.size() >= static_cast<size_t>(min_hits))
+        {
+            result.cast_position = best_pos;
+            result.hit_targets = best_hit_targets;
+            result.hit_chances = best_hit_chances;
+            result.expected_hits = 0.f;
+
+            float min_hc = 1.f;
+            float sum_hc = 0.f;
+
+            for (size_t i = 0; i < best_hit_chances.size(); ++i)
+            {
+                result.expected_hits += best_hit_chances[i];
+                min_hc = std::min(min_hc, best_hit_chances[i]);
+                sum_hc += best_hit_chances[i];
+            }
+
+            result.min_hit_chance = min_hc;
+            result.avg_hit_chance = sum_hc / best_hit_chances.size();
+            result.is_valid = true;
+        }
+    }
+    catch (...)
+    {
+        result.is_valid = false;
+    }
+
+    return result;
+}
+
+// =============================================================================
+// AUTO-ROUTING AOE PREDICTION
+// =============================================================================
+
+CustomPredictionSDK::aoe_pred_result CustomPredictionSDK::predict_aoe(
+    pred_sdk::spell_data spell_data,
+    int min_hits,
+    float min_single_hc,
+    bool priority_weighted)
+{
+    // Route to appropriate solver based on spell type
+    switch (spell_data.spell_type)
+    {
+    case pred_sdk::spell_type::circular:
+        return predict_aoe_cluster(spell_data, min_hits, min_single_hc, priority_weighted);
+
+    case pred_sdk::spell_type::linear:
+    case pred_sdk::spell_type::vector:
+        return predict_linear_aoe(spell_data, min_hits, min_single_hc, priority_weighted);
+
+    default:
+        // Default to circular for unknown types
+        return predict_aoe_cluster(spell_data, min_hits, min_single_hc, priority_weighted);
+    }
+}
+
 bool CustomPredictionSDK::check_collision_simple(
     const math::vector3& start,
     const math::vector3& end,
