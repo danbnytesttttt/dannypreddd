@@ -2911,6 +2911,9 @@ namespace HybridPred
 
     void PredictionManager::update()
     {
+        // MASTER TRY-CATCH: Prevent any crash from update
+        try
+        {
         // CRASH FIX: Add null checks for g_sdk subsystems
         if (!g_sdk || !g_sdk->clock_facade || !g_sdk->object_manager)
             return;
@@ -2979,6 +2982,8 @@ namespace HybridPred
         }
 
         last_update_time_ = current_time;
+        } // End master try
+        catch (...) { /* Prevent any crash from update */ }
     }
 
     TargetBehaviorTracker* PredictionManager::get_tracker(game_object* target)
@@ -3007,15 +3012,25 @@ namespace HybridPred
         game_object* target,
         const pred_sdk::spell_data& spell)
     {
-        auto* tracker = get_tracker(target);
-        if (!tracker)
+        try
         {
+            auto* tracker = get_tracker(target);
+            if (!tracker)
+            {
+                HybridPredictionResult result;
+                result.is_valid = false;
+                return result;
+            }
+
+            return HybridFusionEngine::compute_hybrid_prediction(source, target, spell, *tracker);
+        }
+        catch (...)
+        {
+            // Prevent any crash from prediction
             HybridPredictionResult result;
             result.is_valid = false;
             return result;
         }
-
-        return HybridFusionEngine::compute_hybrid_prediction(source, target, spell, *tracker);
     }
 
     void PredictionManager::clear()
