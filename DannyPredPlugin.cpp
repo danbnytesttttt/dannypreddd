@@ -72,14 +72,6 @@ namespace Prediction
             g_menu->add_checkbox("dash_pred", "Dash Endpoint Prediction", true, [](bool value) {
                 PredictionSettings::get().enable_dash_prediction = value;
             });
-
-            g_menu->add_checkbox("hp_pressure", "HP Retreat Bias", true, [](bool value) {
-                PredictionSettings::get().enable_hp_pressure = value;
-            });
-
-            g_menu->add_checkbox("cs_pred", "CS Prediction (Experimental)", false, [](bool value) {
-                PredictionSettings::get().enable_cs_prediction = value;
-            });
         }
 
         if (PredictionSettings::get().enable_debug_logging)

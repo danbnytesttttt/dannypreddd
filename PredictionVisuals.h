@@ -79,14 +79,26 @@ namespace PredictionVisuals
         }
 
         // CRITICAL: Additional validity checks to prevent crashes
-        if (!target->is_valid())
-            return;
+        try
+        {
+            if (!target->is_valid())
+                return;
 
-        if (target->is_dead())
-            return;
+            if (target->is_dead())
+                return;
 
-        if (!target->is_visible())
+            if (!target->is_visible())
+                return;
+
+            // Additional safety for dummies/special units
+            if (!target->is_targetable())
+                return;
+        }
+        catch (...)
+        {
+            // Target became invalid - skip drawing
             return;
+        }
 
         const auto& settings = VisualsSettings::get();
 
@@ -161,7 +173,7 @@ namespace PredictionVisuals
             catch (...) { /* Ignore render errors */ }
         }
 
-        // Draw skillshot line (main color line from player to predicted enemy position)
+        // Draw skillshot line connected to circle edge (main color)
         if (settings.draw_movement_line)
         {
             try
@@ -171,20 +183,26 @@ namespace PredictionVisuals
                     return;
 
                 auto* local_player = g_sdk->object_manager->get_local_player();
-                if (local_player)
+                if (local_player && local_player->is_valid())
                 {
                     math::vector3 player_pos = local_player->get_position();
+
+                    // Calculate line endpoint at circle edge (not center)
+                    // This makes line and circle appear as one connected shape
+                    math::vector3 direction = (predicted_pos - player_pos).normalized();
+                    math::vector3 circle_edge = predicted_pos - direction * settings.predicted_circle_radius;
+
                     math::vector2 screen_player = g_sdk->renderer->world_to_screen(player_pos);
-                    math::vector2 screen_predicted = g_sdk->renderer->world_to_screen(predicted_pos);
+                    math::vector2 screen_edge = g_sdk->renderer->world_to_screen(circle_edge);
 
                     bool player_valid = (screen_player.x != 0.f || screen_player.y != 0.f);
-                    bool predicted_valid = (screen_predicted.x != 0.f || screen_predicted.y != 0.f);
+                    bool edge_valid = (screen_edge.x != 0.f || screen_edge.y != 0.f);
 
-                    if (player_valid && predicted_valid)
+                    if (player_valid && edge_valid)
                     {
                         g_sdk->renderer->add_line_2d(
                             screen_player,
-                            screen_predicted,
+                            screen_edge,
                             settings.line_thickness,
                             settings.main_color
                         );
