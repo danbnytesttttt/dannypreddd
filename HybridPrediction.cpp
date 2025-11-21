@@ -150,16 +150,28 @@ namespace HybridPred
         // Compute velocity if we have previous snapshot
         if (!movement_history_.empty())
         {
-            snapshot.velocity = compute_velocity(movement_history_.back(), snapshot);
+            // TELEPORT DETECTION: If position changed by more than 2000 units in one frame,
+            // target teleported (recall, TP, etc.) - reset history to prevent garbage velocity
+            float position_delta = (snapshot.position - movement_history_.back().position).magnitude();
+            if (position_delta > 2000.f)
+            {
+                // Teleportation detected - clear history and start fresh
+                movement_history_.clear();
+                snapshot.velocity = math::vector3(0, 0, 0);
+            }
+            else
+            {
+                snapshot.velocity = compute_velocity(movement_history_.back(), snapshot);
+            }
 
             // Detect auto-attack for post-AA movement analysis
-            if (snapshot.is_auto_attacking && !movement_history_.back().is_auto_attacking)
+            if (!movement_history_.empty() && snapshot.is_auto_attacking && !movement_history_.back().is_auto_attacking)
             {
                 last_aa_time_ = current_time;
             }
 
             // Track post-AA movement delay
-            if (last_aa_time_ > 0.f && snapshot.velocity.magnitude() > 10.f &&
+            if (!movement_history_.empty() && last_aa_time_ > 0.f && snapshot.velocity.magnitude() > 10.f &&
                 movement_history_.back().velocity.magnitude() < 10.f)
             {
                 float delay = current_time - last_aa_time_;
