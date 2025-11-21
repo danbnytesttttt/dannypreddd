@@ -1985,31 +1985,64 @@ namespace HybridPred
             }
         }
 
-        // NEW: Check if target has a clear path and is actively following it
-        // This gives confidence even before we have history samples
+        // NEW: Check if target has a predictable path ahead
+        // Only "obvious" if they'll walk straight for a meaningful distance
         auto path = target->get_path();
         if (path.size() > 1)
         {
-            // Has a path - check if moving toward next waypoint
             math::vector3 current_velocity = tracker.get_current_velocity();
             float vel_speed = current_velocity.magnitude();
 
             if (vel_speed > 50.f)  // Actually moving
             {
-                math::vector3 to_waypoint = path[1] - target->get_position();
-                float wp_dist = to_waypoint.magnitude();
+                math::vector3 current_pos = target->get_position();
 
-                if (wp_dist > 10.f)
+                // Calculate how far they'll walk in current direction before turning
+                float straight_distance = 0.f;
+                math::vector3 last_dir;
+                bool first_segment = true;
+
+                for (size_t i = 1; i < path.size(); ++i)
                 {
-                    // Check if velocity aligns with path direction
-                    math::vector3 vel_dir = current_velocity / vel_speed;
-                    math::vector3 path_dir = to_waypoint / wp_dist;
+                    math::vector3 segment_start = (i == 1) ? current_pos : path[i - 1];
+                    math::vector3 segment_end = path[i];
+                    math::vector3 segment = segment_end - segment_start;
+                    float segment_len = segment.magnitude();
 
-                    float alignment = vel_dir.x * path_dir.x + vel_dir.z * path_dir.z;
-                    if (alignment > 0.9f)  // Moving in path direction
+                    if (segment_len < 1.f)
+                        continue;
+
+                    math::vector3 segment_dir = segment / segment_len;
+
+                    if (first_segment)
                     {
-                        return true;  // Clear pathing = obvious hit
+                        // Check velocity aligns with first segment
+                        math::vector3 vel_dir = current_velocity / vel_speed;
+                        float alignment = vel_dir.x * segment_dir.x + vel_dir.z * segment_dir.z;
+                        if (alignment < 0.85f)
+                            break;  // Not following path
+
+                        straight_distance += segment_len;
+                        last_dir = segment_dir;
+                        first_segment = false;
                     }
+                    else
+                    {
+                        // Check if this segment continues straight
+                        float dir_dot = last_dir.x * segment_dir.x + last_dir.z * segment_dir.z;
+                        if (dir_dot < 0.9f)  // Turn detected
+                            break;
+
+                        straight_distance += segment_len;
+                        last_dir = segment_dir;
+                    }
+                }
+
+                // Only "obvious hit" if they'll walk straight for 300+ units
+                // That's enough distance for most skillshots to land
+                if (straight_distance > 300.f)
+                {
+                    return true;
                 }
             }
         }
