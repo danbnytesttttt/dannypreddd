@@ -395,4 +395,11 @@ namespace math
             return rect( this->bottom, this->left, this->bottom, this->left );
         }
     };
+
+    // Helper function to check if vector3 is zero/invalid
+    inline bool is_zero(const vector3& v)
+    {
+        constexpr float EPSILON = 1e-6f;
+        return (std::fabs(v.x) < EPSILON && std::fabs(v.y) < EPSILON && std::fabs(v.z) < EPSILON);
+    }
 }
