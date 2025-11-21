@@ -843,6 +843,190 @@ float CustomPredictionSDK::calculate_target_score(
     return score;
 }
 
+// =============================================================================
+// AOE PREDICTION (MULTI-TARGET CLUSTER)
+// =============================================================================
+
+CustomPredictionSDK::aoe_pred_result CustomPredictionSDK::predict_aoe_cluster(
+    pred_sdk::spell_data spell_data,
+    int min_hits,
+    float min_single_hc,
+    bool priority_weighted)
+{
+    aoe_pred_result result;
+
+    try
+    {
+        if (!g_sdk || !g_sdk->object_manager)
+            return result;
+
+        // Ensure source is valid
+        if (!spell_data.source || !spell_data.source->is_valid())
+        {
+            spell_data.source = g_sdk->object_manager->get_local_player();
+            if (!spell_data.source)
+                return result;
+        }
+
+        math::vector3 source_pos = spell_data.source->get_position();
+
+        // Step 1: Get all valid targets and their predictions
+        struct TargetPrediction
+        {
+            game_object* target;
+            math::vector3 predicted_pos;
+            float hit_chance;
+            float priority;  // For weighted mode
+        };
+        std::vector<TargetPrediction> targets;
+
+        auto heroes = g_sdk->object_manager->get_heroes();
+        for (auto* hero : heroes)
+        {
+            if (!hero || !hero->is_valid() || hero->is_dead())
+                continue;
+            if (hero->get_team_id() == spell_data.source->get_team_id())
+                continue;
+            if (!hero->is_visible())
+                continue;
+
+            float dist = hero->get_position().distance(source_pos);
+            if (dist > spell_data.range + 200.f)  // Small buffer
+                continue;
+
+            // Get individual prediction
+            pred_sdk::pred_data pred = predict(hero, spell_data);
+            if (!pred.is_valid)
+                continue;
+
+            // Convert hitchance enum to float
+            float hc = 0.f;
+            switch (pred.hitchance)
+            {
+            case pred_sdk::hitchance::very_high: hc = 0.9f; break;
+            case pred_sdk::hitchance::high: hc = 0.7f; break;
+            case pred_sdk::hitchance::medium: hc = 0.5f; break;
+            case pred_sdk::hitchance::low: hc = 0.3f; break;
+            default: hc = 0.1f; break;
+            }
+
+            if (hc < min_single_hc)
+                continue;
+
+            // Calculate priority (higher for carries, lower for tanks)
+            float priority = 1.0f;
+            if (priority_weighted)
+            {
+                float hp_ratio = hero->get_hp() / std::max(hero->get_max_hp(), 1.f);
+                float armor = hero->get_armor();
+                // Carries: low HP, low armor = high priority
+                // Tanks: high HP, high armor = low priority
+                priority = (2.f - hp_ratio) * (200.f / std::max(armor + 100.f, 1.f));
+                priority = std::clamp(priority, 0.5f, 2.0f);
+            }
+
+            targets.push_back({hero, pred.cast_position, hc, priority});
+        }
+
+        result.targets_in_range = static_cast<int>(targets.size());
+
+        if (targets.size() < static_cast<size_t>(min_hits))
+            return result;
+
+        // Step 2: Find optimal cast position
+        // Start with centroid of predicted positions
+        math::vector3 centroid(0, 0, 0);
+        for (const auto& t : targets)
+        {
+            centroid.x += t.predicted_pos.x;
+            centroid.y += t.predicted_pos.y;
+            centroid.z += t.predicted_pos.z;
+        }
+        centroid.x /= targets.size();
+        centroid.y /= targets.size();
+        centroid.z /= targets.size();
+
+        // Step 3: Grid search around centroid for best position
+        math::vector3 best_pos = centroid;
+        float best_score = -1.f;
+        std::vector<game_object*> best_hit_targets;
+        std::vector<float> best_hit_chances;
+
+        constexpr float SEARCH_STEP = 30.f;
+        constexpr float SEARCH_RADIUS = 150.f;
+
+        for (float dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx += SEARCH_STEP)
+        {
+            for (float dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz += SEARCH_STEP)
+            {
+                math::vector3 test_pos = centroid;
+                test_pos.x += dx;
+                test_pos.z += dz;
+
+                // Check if position is in range
+                if (test_pos.distance(source_pos) > spell_data.range)
+                    continue;
+
+                // Calculate score for this position
+                float score = 0.f;
+                std::vector<game_object*> hits;
+                std::vector<float> hcs;
+
+                for (const auto& t : targets)
+                {
+                    float dist_to_pos = t.predicted_pos.distance(test_pos);
+                    if (dist_to_pos <= spell_data.radius)
+                    {
+                        // Target would be hit - weight by priority and hit chance
+                        float contrib = t.hit_chance * t.priority;
+                        score += contrib;
+                        hits.push_back(t.target);
+                        hcs.push_back(t.hit_chance);
+                    }
+                }
+
+                if (score > best_score && hits.size() >= static_cast<size_t>(min_hits))
+                {
+                    best_score = score;
+                    best_pos = test_pos;
+                    best_hit_targets = hits;
+                    best_hit_chances = hcs;
+                }
+            }
+        }
+
+        // Step 4: Populate result
+        if (best_hit_targets.size() >= static_cast<size_t>(min_hits))
+        {
+            result.cast_position = best_pos;
+            result.hit_targets = best_hit_targets;
+            result.hit_chances = best_hit_chances;
+            result.expected_hits = 0.f;
+
+            float min_hc = 1.f;
+            float sum_hc = 0.f;
+
+            for (size_t i = 0; i < best_hit_chances.size(); ++i)
+            {
+                result.expected_hits += best_hit_chances[i];
+                min_hc = std::min(min_hc, best_hit_chances[i]);
+                sum_hc += best_hit_chances[i];
+            }
+
+            result.min_hit_chance = min_hc;
+            result.avg_hit_chance = sum_hc / best_hit_chances.size();
+            result.is_valid = true;
+        }
+    }
+    catch (...)
+    {
+        // AOE solver crashed - return invalid result
+        result.is_valid = false;
+    }
+
+    return result;
+}
+
 bool CustomPredictionSDK::check_collision_simple(
     const math::vector3& start,
     const math::vector3& end,

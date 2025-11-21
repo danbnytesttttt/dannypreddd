@@ -86,6 +86,44 @@ public:
     collision_ret collides(const math::vector3& end_point, pred_sdk::spell_data spell_data, const game_object* target) override;
 
     // =========================================================================
+    // AOE PREDICTION (MULTI-TARGET)
+    // =========================================================================
+
+    /**
+     * AOE prediction result with multi-target info
+     */
+    struct aoe_pred_result
+    {
+        math::vector3 cast_position;          // Optimal cast position for cluster
+        float expected_hits;                   // Expected number of targets hit (weighted sum)
+        int targets_in_range;                  // Number of valid targets considered
+        std::vector<game_object*> hit_targets; // Targets expected to be hit
+        std::vector<float> hit_chances;        // Hit chance for each target
+        float min_hit_chance;                  // Lowest individual hit chance
+        float avg_hit_chance;                  // Average hit chance across targets
+        bool is_valid;                         // True if meets minimum requirements
+
+        aoe_pred_result() : expected_hits(0.f), targets_in_range(0),
+            min_hit_chance(0.f), avg_hit_chance(0.f), is_valid(false) {}
+    };
+
+    /**
+     * Predict optimal cast position for AOE spell to hit multiple targets
+     *
+     * @param spell_data Spell configuration
+     * @param min_hits Minimum targets required (default 2)
+     * @param min_single_hc Minimum hit chance per target (default 0.25)
+     * @param priority_weighted Weight by target priority (carries > tanks)
+     * @return AOE prediction result with optimal position and expected hits
+     */
+    aoe_pred_result predict_aoe_cluster(
+        pred_sdk::spell_data spell_data,
+        int min_hits = 2,
+        float min_single_hc = 0.25f,
+        bool priority_weighted = false
+    );
+
+    // =========================================================================
     // UTILITY CLASS IMPLEMENTATION
     // =========================================================================
 
