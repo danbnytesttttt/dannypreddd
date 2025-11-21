@@ -116,11 +116,20 @@ namespace PredictionVisuals
             {
                 // Get direction to next waypoint
                 math::vector3 next_waypoint = path[1];
-                math::vector3 direction = (next_waypoint - current_pos).normalized();
+                math::vector3 diff = next_waypoint - current_pos;
 
-                // Velocity = direction * move_speed
-                float move_speed = target->get_move_speed();
-                velocity = direction * move_speed;
+                // CRASH PROTECTION: Check for zero vector before normalizing
+                float diff_magnitude = diff.magnitude();
+                if (diff_magnitude < 0.001f)
+                {
+                    velocity = math::vector3(0, 0, 0);
+                }
+                else
+                {
+                    math::vector3 direction = diff / diff_magnitude;
+                    float move_speed = target->get_move_speed();
+                    velocity = direction * move_speed;
+                }
             }
             else
             {
@@ -189,7 +198,14 @@ namespace PredictionVisuals
 
                     // Calculate line endpoint at circle edge (not center)
                     // This makes line and circle appear as one connected shape
-                    math::vector3 direction = (predicted_pos - player_pos).normalized();
+                    math::vector3 diff = predicted_pos - player_pos;
+                    float diff_magnitude = diff.magnitude();
+
+                    // CRASH PROTECTION: Skip if player and prediction are at same spot
+                    if (diff_magnitude < 0.001f)
+                        return;
+
+                    math::vector3 direction = diff / diff_magnitude;
                     math::vector3 circle_edge = predicted_pos - direction * settings.predicted_circle_radius;
 
                     math::vector2 screen_player = g_sdk->renderer->world_to_screen(player_pos);

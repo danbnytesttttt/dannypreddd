@@ -22,7 +22,7 @@ void __fastcall on_update()
 // Render callback function for visual indicators
 void __fastcall on_draw()
 {
-    if (!g_sdk || !g_sdk->clock_facade)
+    if (!g_sdk || !g_sdk->clock_facade || !g_sdk->renderer)
         return;
 
     float current_time = g_sdk->clock_facade->get_game_time();
