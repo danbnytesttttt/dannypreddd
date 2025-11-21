@@ -1094,14 +1094,20 @@ bool CustomPredictionSDK::check_collision_simple(
                 math::vector3 to_minion = minion_pos - start;
 
                 float projection = to_minion.dot(line_dir);
+                float minion_radius = minion->get_bounding_radius();
+                float collision_radius = spell_data.radius + minion_radius;
 
-                if (projection < 0.f || projection > line_length)
+                // FIX: Account for bounding radius when checking projection bounds
+                // Minion can block if its hitbox overlaps the line, even if center is behind/beyond
+                if (projection < -minion_radius || projection > line_length + minion_radius)
                     continue;
 
-                math::vector3 closest_point = start + line_dir * projection;
+                // Clamp projection to line segment for distance calculation
+                float clamped_proj = std::max(0.f, std::min(projection, line_length));
+                math::vector3 closest_point = start + line_dir * clamped_proj;
                 float distance = minion_pos.distance(closest_point);
 
-                if (distance <= spell_data.radius + minion->get_bounding_radius())
+                if (distance <= collision_radius)
                 {
                     return true;  // Collision detected
                 }
@@ -1132,14 +1138,19 @@ bool CustomPredictionSDK::check_collision_simple(
                 math::vector3 to_hero = hero_pos - start;
 
                 float projection = to_hero.dot(line_dir);
+                float hero_radius = hero->get_bounding_radius();
+                float collision_radius = spell_data.radius + hero_radius;
 
-                if (projection < 0.f || projection > line_length)
+                // FIX: Account for bounding radius when checking projection bounds
+                if (projection < -hero_radius || projection > line_length + hero_radius)
                     continue;
 
-                math::vector3 closest_point = start + line_dir * projection;
+                // Clamp projection to line segment for distance calculation
+                float clamped_proj = std::max(0.f, std::min(projection, line_length));
+                math::vector3 closest_point = start + line_dir * clamped_proj;
                 float distance = hero_pos.distance(closest_point);
 
-                if (distance <= spell_data.radius + hero->get_bounding_radius())
+                if (distance <= collision_radius)
                 {
                     return true;  // Collision detected
                 }
