@@ -2110,13 +2110,22 @@ namespace HybridPred
             confidence *= (1.0f + ANIMATION_LOCK_CONFIDENCE_BOOST);  // 1.3x multiplier
         }
 
-        // Bush/fog advantage - if we're hidden, enemy can't react to cast animation
+        // Fog of war advantage - if we're hidden from enemy, they can't react to cast animation
         // They only see the spell once it's in flight, reducing reaction time
-        if (source->is_in_bush() && !target->is_in_bush())
+        // Check if our position is in fog of war for the ENEMY team
+        if (g_sdk && g_sdk->nav_mesh)
         {
-            // Enemy can't see us - significant confidence boost
-            // They lose ~0.25s of reaction time (cast animation)
-            confidence *= 1.25f;
+            int enemy_team = target->get_team_id();
+            math::vector3 source_pos = source->get_position();
+
+            // Check if we're in fog of war for the enemy team
+            // This covers: bush (unwarded), behind walls, any fog condition
+            if (g_sdk->nav_mesh->is_in_fow_for_team(source_pos, enemy_team))
+            {
+                // Enemy can't see us - significant confidence boost
+                // They lose ~0.25s of reaction time (cast animation)
+                confidence *= 1.25f;
+            }
         }
 
         return std::clamp(confidence, 0.1f, 1.0f);
