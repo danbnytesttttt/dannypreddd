@@ -711,114 +711,59 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
     }
 
     // Calculate search range: Tactical vs Global spells
-    // TACTICAL (< 2500): Add buffer for enemies walking into range
-    // GLOBAL (>= 2500): Use full range, let hitchance filter bad shots
     float search_range = spell_data.range;
     if (spell_data.range < 2500.f)
     {
-        // Add buffer scaled to spell range, capped at 300 units
-        // Example: 1000 range spell gets +300 buffer = 1300 search range
-        //          500 range spell gets +250 buffer = 750 search range
         float buffer = std::min(spell_data.range * 0.5f, 300.f);
         search_range = spell_data.range + buffer;
     }
-    // else: Global spell - use full range (Jinx R 25000, Ashe R 20000, etc.)
 
-    // Use SDK target selector with range filter - let it handle priority/threat logic
-    if (sdk::target_selector)
-    {
-        // Pass filter to target selector - TS handles priority, we constrain range
-        auto* ts_target = sdk::target_selector->get_hero_target([&](game_object* obj) -> bool {
-            if (!obj || !obj->is_valid() || obj->is_dead())
-                return false;
-
-            float distance = obj->get_position().distance(spell_data.source->get_position());
-            return distance <= search_range;
-        });
-
-        if (ts_target)
-        {
-            float distance = ts_target->get_position().distance(spell_data.source->get_position());
-
-            // If target is currently in ability range, accept immediately
-            if (distance <= spell_data.range)
-            {
-                if (PredictionSettings::get().enable_debug_logging)
-                {
-                    char debug[256];
-                    sprintf_s(debug, "[Danny.Prediction] Using TS target at %.0f units (in range)", distance);
-                    g_sdk->log_console(debug);
-                }
-                return ts_target;
-            }
-
-            // Target is in buffer zone (between range and search_range)
-            // Only accept if they're moving toward us (buffer is for incoming enemies)
-            if (spell_data.range < 2500.f)  // Only check for tactical spells with buffer
-            {
-                auto path = ts_target->get_path();
-                if (path.size() > 1)
-                {
-                    // Check if target is moving toward us
-                    math::vector3 current_pos = ts_target->get_position();
-                    math::vector3 next_waypoint = path[1];
-                    math::vector3 source_pos = spell_data.source->get_position();
-
-                    float current_distance = current_pos.distance(source_pos);
-                    float next_distance = next_waypoint.distance(source_pos);
-
-                    if (next_distance < current_distance)
-                    {
-                        // Moving toward us - accept
-                        if (PredictionSettings::get().enable_debug_logging)
-                        {
-                            char debug[256];
-                            sprintf_s(debug, "[Danny.Prediction] Using TS target at %.0f units (moving into range)", distance);
-                            g_sdk->log_console(debug);
-                        }
-                        return ts_target;
-                    }
-                }
-
-                // Target is in buffer but not moving toward us - reject, search for closer target
-                if (PredictionSettings::get().enable_debug_logging)
-                {
-                    char debug[256];
-                    sprintf_s(debug, "[Danny.Prediction] TS target at %.0f units not moving into range, searching alternatives", distance);
-                    g_sdk->log_console(debug);
-                }
-            }
-            else
-            {
-                // Global spell - always accept (they're in search range)
-                return ts_target;
-            }
-        }
-    }
-
-    // Fallback: Find best target based on hybrid prediction score (prioritizes CLOSE targets)
+    // IMPROVED: Iterate ALL enemies and compare scores
+    // Don't blindly accept SDK's target - it optimizes for auto-attacks, not skillshots
     game_object* best_target = nullptr;
     float best_score = -1.f;
+
+    // Get SDK's preferred target for soft priority boost
+    game_object* sdk_preferred = nullptr;
+    if (sdk::target_selector)
+    {
+        sdk_preferred = sdk::target_selector->get_hero_target();
+    }
 
     auto all_heroes = g_sdk->object_manager->get_heroes();
 
     for (auto* hero : all_heroes)
     {
-        if (!hero || !hero->is_valid() || hero->is_dead() || hero->get_team_id() == spell_data.source->get_team_id())
+        // Basic validity checks
+        if (!hero || !hero->is_valid() || hero->is_dead())
+            continue;
+        if (hero->get_team_id() == spell_data.source->get_team_id())
             continue;
 
-        // Check range (same as TS filter for consistency)
+        // CRITICAL: Explicit visibility check - don't waste time on fog targets
+        if (!hero->is_visible())
+            continue;
+
+        // Check range
         float distance = hero->get_position().distance(spell_data.source->get_position());
         if (distance > search_range)
             continue;
 
-        // Calculate score
+        // Calculate score based on hit probability
         float score = calculate_target_score(hero, spell_data);
 
-        // BONUS: Small preference for targets currently in range (tiebreaker, not override)
+        // SDK Priority Boost (Soft Priority)
+        // If SDK's target selector likes this target, give small bonus
+        // but do NOT blindly accept - compare against all targets
+        if (sdk_preferred && sdk_preferred->get_network_id() == hero->get_network_id())
+        {
+            score *= 1.2f;  // 20% preference for SDK selected target
+        }
+
+        // Small bonus for targets currently in range (tiebreaker)
         if (distance <= spell_data.range)
         {
-            score *= 1.15f;  // 15% bonus - allows high hitchance buffer targets to still win
+            score *= 1.1f;
         }
 
         if (score > best_score)
@@ -826,6 +771,15 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
             best_score = score;
             best_target = hero;
         }
+    }
+
+    if (PredictionSettings::get().enable_debug_logging && best_target)
+    {
+        float distance = best_target->get_position().distance(spell_data.source->get_position());
+        char debug[256];
+        snprintf(debug, sizeof(debug), "[Danny.Prediction] Selected target: %s at %.0f units (score: %.2f)",
+            best_target->get_char_name().c_str(), distance, best_score);
+        g_sdk->log_console(debug);
     }
 
     return best_target;
@@ -860,7 +814,7 @@ float CustomPredictionSDK::calculate_target_score(
     // Apply edge case priority multipliers (HUGE impact)
     score *= edge_cases.priority_multiplier;
 
-    // FIXED: HEAVILY prioritize closer targets to avoid cross-map targeting
+    // Distance factor for scoring
     float distance = target->get_position().distance(spell_data.source->get_position());
     float distance_factor = 0.f;
     if (spell_data.range > 0.f)
@@ -868,13 +822,23 @@ float CustomPredictionSDK::calculate_target_score(
         distance_factor = 1.f - std::min(distance / spell_data.range, 1.f);
     }
 
-    // Increased proximity weight from 30% to 70% - nearby targets get MUCH higher score
-    // Old: 0.7 + 0.3*factor (70%-100%)
-    // New: 0.3 + 0.7*factor (30%-100%)
-    // Example: Target at max range gets 0.3x multiplier (70% penalty)
-    //          Target at half range gets 0.65x multiplier (35% penalty)
+    // IMPROVED: Reduced distance penalty for better sniping and kiting
+    // Old: 0.3 + 0.7*factor = 70% penalty at max range (too harsh)
+    // New: 0.7 + 0.3*factor = 30% penalty at max range
+    // Example: Target at max range gets 0.7x multiplier (30% penalty)
+    //          Target at half range gets 0.85x multiplier (15% penalty)
     //          Target at point blank gets 1.0x multiplier (no penalty)
-    score *= (0.3f + distance_factor * 0.7f);
+
+    // For GLOBAL spells (Lux R, Ezreal R, etc.), remove distance penalty entirely
+    if (spell_data.range > 2500.f)
+    {
+        // Global spell - distance doesn't matter, only hit chance
+        // No distance penalty applied
+    }
+    else
+    {
+        score *= (0.7f + distance_factor * 0.3f);
+    }
 
     return score;
 }
