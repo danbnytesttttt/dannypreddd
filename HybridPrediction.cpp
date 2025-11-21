@@ -352,7 +352,11 @@ namespace HybridPred
                 if (last_juke != 0 && !movement_history_.empty())
                 {
                     const auto& latest = movement_history_.back();
-                    math::vector3 vel_dir = latest.velocity.normalized();
+                    // CRASH FIX: Check velocity magnitude before normalizing
+                    float vel_mag = latest.velocity.magnitude();
+                    if (vel_mag < 0.001f)
+                        continue;
+                    math::vector3 vel_dir = latest.velocity / vel_mag;
                     // Perpendicular: 90° rotation in XZ plane
                     math::vector3 perpendicular(-vel_dir.z, 0.f, vel_dir.x);
                     dodge_pattern_.predicted_next_direction = perpendicular * static_cast<float>(-last_juke);
@@ -383,11 +387,17 @@ namespace HybridPred
                         dodge_pattern_.last_pattern_update_time = g_sdk->clock_facade->get_game_time();
 
                     // Predict next: continues the sequence
+                    // CRASH FIX: Check half != 0 before modulo
+                    if (half == 0) continue;
                     int next_in_sequence = dodge_pattern_.juke_sequence[dodge_pattern_.juke_sequence.size() % half];
                     if (next_in_sequence != 0 && !movement_history_.empty())
                     {
                         const auto& latest = movement_history_.back();
-                        math::vector3 vel_dir = latest.velocity.normalized();
+                        // CRASH FIX: Check velocity magnitude before normalizing
+                        float vel_mag = latest.velocity.magnitude();
+                        if (vel_mag < 0.001f)
+                            continue;
+                        math::vector3 vel_dir = latest.velocity / vel_mag;
                         math::vector3 perpendicular(-vel_dir.z, 0.f, vel_dir.x);
                         dodge_pattern_.predicted_next_direction = perpendicular * static_cast<float>(next_in_sequence);
                     }
@@ -509,6 +519,9 @@ namespace HybridPred
         float max_move_distance = move_speed * prediction_time * 1.2f;
         float required_grid_radius = std::max(400.f, max_move_distance);  // Minimum 400 units
         pdf.cell_size = (required_grid_radius * 2.f) / BehaviorPDF::GRID_SIZE;  // Total coverage / grid_size
+        // CRASH PROTECTION: Ensure cell_size is never zero
+        if (pdf.cell_size < EPSILON)
+            pdf.cell_size = 25.f;  // Safe default
 
         // ADAPTIVE DECAY RATE: Adjust based on target mobility
         float decay_rate = get_adaptive_decay_rate(latest.velocity.magnitude());
@@ -1408,7 +1421,7 @@ namespace HybridPred
         }
 
         // Validate SDK is initialized
-        if (!g_sdk)
+        if (!g_sdk || !g_sdk->clock_facade)
         {
             result.is_valid = false;
             result.reasoning = "SDK not initialized";
@@ -1829,7 +1842,10 @@ namespace HybridPred
         confidence *= std::exp(-distance * CONFIDENCE_DISTANCE_DECAY);
 
         // Latency factor (ping in seconds)
-        float ping = static_cast<float>(g_sdk->net_client->get_ping()) * 0.001f;
+        // CRASH FIX: Check net_client before accessing
+        float ping = 0.f;
+        if (g_sdk->net_client)
+            ping = static_cast<float>(g_sdk->net_client->get_ping()) * 0.001f;
         confidence *= std::exp(-ping * CONFIDENCE_LATENCY_FACTOR);
 
         // Spell-specific adjustments
@@ -1993,7 +2009,7 @@ namespace HybridPred
         }
 
         // Validate SDK is initialized
-        if (!g_sdk)
+        if (!g_sdk || !g_sdk->clock_facade)
         {
             result.is_valid = false;
             result.reasoning = "SDK not initialized";
@@ -2187,7 +2203,7 @@ namespace HybridPred
         }
 
         // Validate SDK is initialized
-        if (!g_sdk)
+        if (!g_sdk || !g_sdk->clock_facade)
         {
             result.is_valid = false;
             result.reasoning = "SDK not initialized";
@@ -2222,7 +2238,7 @@ namespace HybridPred
         }
 
         // Validate SDK is initialized
-        if (!g_sdk)
+        if (!g_sdk || !g_sdk->clock_facade)
         {
             result.is_valid = false;
             result.reasoning = "SDK not initialized";
@@ -2328,7 +2344,7 @@ namespace HybridPred
         }
 
         // Validate SDK is initialized
-        if (!g_sdk)
+        if (!g_sdk || !g_sdk->clock_facade)
         {
             result.is_valid = false;
             result.reasoning = "SDK not initialized";
@@ -2881,6 +2897,10 @@ namespace HybridPred
 
     void PredictionManager::update()
     {
+        // CRASH FIX: Add null checks for g_sdk subsystems
+        if (!g_sdk || !g_sdk->clock_facade || !g_sdk->object_manager)
+            return;
+
         float current_time = g_sdk->clock_facade->get_game_time();
 
         // Update all existing trackers
