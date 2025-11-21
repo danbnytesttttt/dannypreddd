@@ -1011,14 +1011,37 @@ namespace HybridPred
         if (reachable_region.area < EPSILON)
             return 1.0f;  // No dodge time = guaranteed hit
 
-        // Compute intersection area between projectile circle and reachable circle
+        // Distance from cast position to predicted target center
+        float distance = (cast_position - reachable_region.center).magnitude();
+
+        // Gaussian kernel: target most likely at predicted center
+        // σ = max_radius / 2.5 (so ~95% within max_radius)
+        float sigma = reachable_region.max_radius / 2.5f;
+        if (sigma < 1.0f)
+            sigma = 1.0f;  // Minimum sigma to avoid numerical issues
+
+        // Gaussian weight (clamped to avoid exp overflow)
+        float exponent = -(distance * distance) / (2.0f * sigma * sigma);
+        exponent = std::max(-50.0f, exponent);  // Clamp to prevent underflow
+        float gaussian_weight = std::exp(exponent);
+
+        // Compute intersection area
         float intersection_area = circle_circle_intersection_area(
             cast_position, projectile_radius,
             reachable_region.center, reachable_region.max_radius
         );
 
-        // Probability = intersection / reachable area
-        return std::min(1.f, intersection_area / reachable_region.area);
+        // Weight area probability by Gaussian
+        float area_probability = intersection_area / reachable_region.area;
+        float weighted_probability = gaussian_weight * area_probability;
+
+        // Bonus if predicted center is inside projectile
+        if (distance < projectile_radius)
+        {
+            weighted_probability = std::max(weighted_probability, gaussian_weight * 0.85f);
+        }
+
+        return std::min(1.f, weighted_probability);
     }
 
     float PhysicsPredictor::compute_time_to_dodge_probability(
@@ -1145,12 +1168,20 @@ namespace HybridPred
             }
         }
 
-        // Return ratio: how much of their available time is needed
-        // 90% needed = 90% probability they'll be hit
-        // 10% needed = 10% probability (they have plenty of time to dodge)
-        float probability = time_needed_to_escape / time_available;
+        // Sigmoid function for realistic dodge difficulty curve
+        // Linear ratio doesn't capture human dodge thresholds well
+        float ratio = time_needed_to_escape / time_available;
 
-        return std::clamp(probability, 0.f, 1.f);
+        constexpr float SIGMOID_STEEPNESS = 40.f;
+        constexpr float SIGMOID_MIDPOINT = 0.80f;
+
+        // Clamp exponent to prevent overflow/underflow
+        float exponent = -SIGMOID_STEEPNESS * (ratio - SIGMOID_MIDPOINT);
+        exponent = std::clamp(exponent, -50.0f, 50.0f);
+
+        float sigmoid_probability = 1.0f / (1.0f + std::exp(exponent));
+
+        return std::clamp(sigmoid_probability, 0.f, 1.f);
     }
 
     float PhysicsPredictor::compute_arrival_time(
