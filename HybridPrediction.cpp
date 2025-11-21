@@ -1,5 +1,6 @@
 #include "HybridPrediction.h"
 #include "EdgeCaseDetection.h"
+#include "PredictionSettings.h"
 #include <cmath>
 #include <cfloat>
 #include <algorithm>
@@ -1516,7 +1517,7 @@ namespace HybridPred
         }
 
         // Handle dash prediction - ENDPOINT WITH TIMING VALIDATION (if enabled)
-        if (edge_cases.dash.is_dashing && PredictionConfig::get().enable_dash_prediction)
+        if (edge_cases.dash.is_dashing && PredictionSettings::get().enable_dash_prediction)
         {
             float spell_travel_time = PhysicsPredictor::compute_arrival_time(
                 source->get_position(),
