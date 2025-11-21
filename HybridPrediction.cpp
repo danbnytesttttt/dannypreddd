@@ -1940,12 +1940,12 @@ namespace HybridPred
             return true;
 
         // Check if walking in a perfectly straight line
-        // Requires at least 5 samples to establish pattern
+        // Requires at least 3 samples to establish pattern (reduced from 5)
         const auto& history = tracker.get_history();
-        if (history.size() >= 5)
+        if (history.size() >= 3)
         {
-            // Check last 5 velocity vectors for consistency
-            constexpr float DIRECTION_TOLERANCE = 0.1f;  // ~5.7 degrees tolerance
+            // Check last 3 velocity vectors for consistency
+            constexpr float DIRECTION_TOLERANCE = 0.15f;  // ~20 degrees tolerance (more forgiving)
             bool is_straight = true;
 
             math::vector3 base_direction = history[history.size() - 1].velocity;
@@ -1956,7 +1956,8 @@ namespace HybridPred
             {
                 base_direction = base_direction / base_speed;  // Manual normalize
 
-                for (size_t i = history.size() - 5; i < history.size() - 1; ++i)
+                size_t check_count = std::min(history.size(), static_cast<size_t>(3));
+                for (size_t i = history.size() - check_count; i < history.size() - 1; ++i)
                 {
                     math::vector3 vel = history[i].velocity;
                     float speed = vel.magnitude();
@@ -1972,7 +1973,7 @@ namespace HybridPred
 
                     // Check angle between velocities
                     float dot = base_direction.x * vel.x + base_direction.z * vel.z;
-                    if (dot < 1.0f - DIRECTION_TOLERANCE)  // ~5.7 degrees
+                    if (dot < 1.0f - DIRECTION_TOLERANCE)  // ~20 degrees
                     {
                         is_straight = false;
                         break;
@@ -1981,6 +1982,35 @@ namespace HybridPred
 
                 if (is_straight)
                     return true;
+            }
+        }
+
+        // NEW: Check if target has a clear path and is actively following it
+        // This gives confidence even before we have history samples
+        auto path = target->get_path();
+        if (path.size() > 1)
+        {
+            // Has a path - check if moving toward next waypoint
+            math::vector3 current_velocity = tracker.get_current_velocity();
+            float vel_speed = current_velocity.magnitude();
+
+            if (vel_speed > 50.f)  // Actually moving
+            {
+                math::vector3 to_waypoint = path[1] - target->get_position();
+                float wp_dist = to_waypoint.magnitude();
+
+                if (wp_dist > 10.f)
+                {
+                    // Check if velocity aligns with path direction
+                    math::vector3 vel_dir = current_velocity / vel_speed;
+                    math::vector3 path_dir = to_waypoint / wp_dist;
+
+                    float alignment = vel_dir.x * path_dir.x + vel_dir.z * path_dir.z;
+                    if (alignment > 0.9f)  // Moving in path direction
+                    {
+                        return true;  // Clear pathing = obvious hit
+                    }
+                }
             }
         }
 
