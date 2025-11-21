@@ -362,6 +362,7 @@ namespace HybridPred
         std::deque<MovementSnapshot> movement_history_;
         DodgePattern dodge_pattern_;
         float last_update_time_;
+        bool was_visible_last_update_ = true;  // Track fog emergence
 
         // Direction change tracking
         std::vector<float> direction_change_times_;

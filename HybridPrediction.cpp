@@ -127,6 +127,22 @@ namespace HybridPred
 
         float current_time = g_sdk->clock_facade->get_game_time();
 
+        // FOG EMERGENCE DETECTION: Reset history when target becomes visible again
+        // This prevents stale velocity calculations from old positions
+        bool currently_visible = target_->is_visible();
+        if (currently_visible && !was_visible_last_update_)
+        {
+            // Target just emerged from fog - clear stale history
+            movement_history_.clear();
+            // Also clear last update time to force immediate sample
+            last_update_time_ = 0.f;
+        }
+        was_visible_last_update_ = currently_visible;
+
+        // Don't track movement while in fog (data would be stale/estimated)
+        if (!currently_visible)
+            return;
+
         // Sample at fixed rate
         if (current_time - last_update_time_ < MOVEMENT_SAMPLE_RATE)
             return;
