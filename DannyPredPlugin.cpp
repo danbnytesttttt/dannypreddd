@@ -1,5 +1,9 @@
 #include "sdk.hpp"
 #include "CustomPredictionSDK.h"
+#include "PredictionSettings.h"
+#include "PredictionVisuals.h"
+#include "PredictionTelemetry.h"
+#include "FogOfWarTracker.h"
 
 CustomPredictionSDK customPrediction;
 
@@ -12,21 +16,62 @@ void __fastcall on_update()
     CustomPredictionSDK::update_trackers();
 }
 
+// Render callback function for visual indicators
+void __fastcall on_draw()
+{
+    if (!g_sdk || !g_sdk->clock_facade)
+        return;
+
+    float current_time = g_sdk->clock_facade->get_game_time();
+
+    // Only draw if visuals are enabled
+    if (PredictionSettings::get().enable_visuals)
+    {
+        PredictionVisuals::draw_continuous_prediction(current_time);
+    }
+}
+
 namespace Prediction
 {
     void LoadPrediction()
     {
+        // CRITICAL: Validate SDK before registering callbacks
+        if (!g_sdk || !g_sdk->event_manager)
+            return;
+
         // Register update callback for tracker updates
         g_sdk->event_manager->register_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
+
+        // Register draw callback for visual indicators
+        g_sdk->event_manager->register_callback(event_manager::event::draw_world, reinterpret_cast<void*>(on_draw));
+
+        if (g_sdk && PredictionSettings::get().enable_debug_logging)
+            g_sdk->log_console("[Danny.Prediction] Loaded - visuals and trackers initialized");
     }
 
     void UnloadPrediction()
     {
-        // Unregister callback
-        g_sdk->event_manager->unregister_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
+        // Write telemetry report before unloading
+        if (g_sdk && PredictionSettings::get().enable_telemetry)
+        {
+            g_sdk->log_console("[Danny.Prediction] ===== SESSION TELEMETRY REPORT =====");
+            PredictionTelemetry::TelemetryLogger::write_report();
+        }
 
-        // Clean up all trackers
+        // Unregister callbacks (safe even if SDK is null)
+        if (g_sdk && g_sdk->event_manager)
+        {
+            g_sdk->event_manager->unregister_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
+            g_sdk->event_manager->unregister_callback(event_manager::event::draw_world, reinterpret_cast<void*>(on_draw));
+        }
+
+        // Clean up all subsystems (always safe to call)
         HybridPred::PredictionManager::clear();
+        FogOfWarTracker::clear();
+        PredictionVisuals::clear();
+
+        if (g_sdk && PredictionSettings::get().enable_debug_logging)
+            g_sdk->log_console("[Danny.Prediction] Unloaded - all subsystems cleared");
     }
 }
 

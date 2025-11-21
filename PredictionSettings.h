@@ -21,6 +21,7 @@ namespace PredictionSettings
         // Debug settings
         bool enable_debug_logging = false;  // Verbose console logging
         bool enable_telemetry = true;       // Log predictions to file for analysis
+        bool enable_visuals = false;        // Draw prediction indicators (disabled by default)
 
         // Edge case toggles
         bool enable_dash_prediction = true;  // Predict at dash endpoints
