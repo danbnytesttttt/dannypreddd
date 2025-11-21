@@ -16,39 +16,47 @@
 
 pred_sdk::pred_data CustomPredictionSDK::targetted(pred_sdk::spell_data spell_data)
 {
-    PRED_DEBUG_LOG("[Danny.Prediction] targetted() called (point-and-click spell)");
-
     pred_sdk::pred_data result{};
 
-    // Targeted spells don't need prediction - just return target position
-    if (!spell_data.source || !spell_data.source->is_valid())
+    try
+    {
+        PRED_DEBUG_LOG("[Danny.Prediction] targetted() called (point-and-click spell)");
+
+        // Targeted spells don't need prediction - just return target position
+        if (!spell_data.source || !spell_data.source->is_valid())
+        {
+            result.hitchance = pred_sdk::hitchance::any;
+            return result;
+        }
+
+        // Use target selector to find best target
+        // CRITICAL: Check target_selector is available before calling
+        if (!sdk::target_selector)
+        {
+            result.hitchance = pred_sdk::hitchance::any;
+            return result;
+        }
+
+        auto* target = sdk::target_selector->get_hero_target();
+
+        if (!target || !target->is_valid())
+        {
+            result.hitchance = pred_sdk::hitchance::any;
+            return result;
+        }
+
+        // For targeted spells, prediction is trivial
+        result.cast_position = target->get_position();
+        result.predicted_position = target->get_position();
+        result.hitchance = pred_sdk::hitchance::very_high;
+        result.target = target;
+        result.is_valid = true;
+    }
+    catch (...)
     {
         result.hitchance = pred_sdk::hitchance::any;
-        return result;
+        result.is_valid = false;
     }
-
-    // Use target selector to find best target
-    // CRITICAL: Check target_selector is available before calling
-    if (!sdk::target_selector)
-    {
-        result.hitchance = pred_sdk::hitchance::any;
-        return result;
-    }
-
-    auto* target = sdk::target_selector->get_hero_target();
-
-    if (!target || !target->is_valid())
-    {
-        result.hitchance = pred_sdk::hitchance::any;
-        return result;
-    }
-
-    // For targeted spells, prediction is trivial
-    result.cast_position = target->get_position();
-    result.predicted_position = target->get_position();
-    result.hitchance = pred_sdk::hitchance::very_high;
-    result.target = target;
-    result.is_valid = true;
 
     return result;
 }
@@ -61,51 +69,59 @@ pred_sdk::pred_data CustomPredictionSDK::predict(pred_sdk::spell_data spell_data
 {
     pred_sdk::pred_data result{};
 
-    // Safety: Validate SDK is initialized
-    if (!g_sdk || !g_sdk->object_manager)
+    try
+    {
+        // Safety: Validate SDK is initialized
+        if (!g_sdk || !g_sdk->object_manager)
+        {
+            result.hitchance = pred_sdk::hitchance::any;
+            result.is_valid = false;
+            return result;
+        }
+
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            char debug_msg[512];
+            snprintf(debug_msg, sizeof(debug_msg),
+                "[Danny.Prediction] Auto-target predict() - source=0x%p range=%.0f type=%d",
+                (void*)spell_data.source, spell_data.range, static_cast<int>(spell_data.spell_type));
+            g_sdk->log_console(debug_msg);
+        }
+
+        // If source is null, use local player as fallback
+        if (!spell_data.source || !spell_data.source->is_valid())
+        {
+            spell_data.source = g_sdk->object_manager->get_local_player();
+            if (PredictionSettings::get().enable_debug_logging)
+                g_sdk->log_console("[Danny.Prediction] Auto-target: Using local player as source");
+        }
+
+        // Auto-select best target
+        game_object* best_target = get_best_target(spell_data);
+
+        if (!best_target)
+        {
+            if (PredictionSettings::get().enable_debug_logging)
+                g_sdk->log_console("[Danny.Prediction] Auto-target: No valid target found");
+            result.hitchance = pred_sdk::hitchance::any;
+            return result;
+        }
+
+        // FIXED: Use safe string formatting to prevent buffer overflow
+        if (PredictionSettings::get().enable_debug_logging)
+        {
+            std::string debug_msg = "[Danny.Prediction] Auto-target selected: " + best_target->get_char_name();
+            g_sdk->log_console(debug_msg.c_str());
+        }
+
+        return predict(best_target, spell_data);
+    }
+    catch (...)
     {
         result.hitchance = pred_sdk::hitchance::any;
         result.is_valid = false;
         return result;
     }
-
-    if (PredictionSettings::get().enable_debug_logging)
-    {
-        char debug_msg[512];
-        snprintf(debug_msg, sizeof(debug_msg),
-            "[Danny.Prediction] Auto-target predict() - source=0x%p range=%.0f type=%d",
-            (void*)spell_data.source, spell_data.range, static_cast<int>(spell_data.spell_type));
-        g_sdk->log_console(debug_msg);
-    }
-
-    // If source is null, use local player as fallback
-    if (!spell_data.source || !spell_data.source->is_valid())
-    {
-        spell_data.source = g_sdk->object_manager->get_local_player();
-        if (PredictionSettings::get().enable_debug_logging)
-            g_sdk->log_console("[Danny.Prediction] Auto-target: Using local player as source");
-    }
-
-    // Auto-select best target
-    game_object* best_target = get_best_target(spell_data);
-
-    if (!best_target)
-    {
-        if (PredictionSettings::get().enable_debug_logging)
-            g_sdk->log_console("[Danny.Prediction] Auto-target: No valid target found");
-        pred_sdk::pred_data result{};
-        result.hitchance = pred_sdk::hitchance::any;
-        return result;
-    }
-
-    // FIXED: Use safe string formatting to prevent buffer overflow
-    if (PredictionSettings::get().enable_debug_logging)
-    {
-        std::string debug_msg = "[Danny.Prediction] Auto-target selected: " + best_target->get_char_name();
-        g_sdk->log_console(debug_msg.c_str());
-    }
-
-    return predict(best_target, spell_data);
 }
 
 // =============================================================================

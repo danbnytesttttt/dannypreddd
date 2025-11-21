@@ -494,6 +494,12 @@ namespace HybridPred
     {
         // PDF caching: Reuse cached PDF if same frame and similar parameters
         // This avoids rebuilding for Q/W/E/R predictions on the same target in one frame
+        // CRASH FIX: Check g_sdk and clock_facade before accessing
+        if (!g_sdk || !g_sdk->clock_facade)
+        {
+            BehaviorPDF empty_pdf;
+            return empty_pdf;
+        }
         float current_time = g_sdk->clock_facade->get_game_time();
         constexpr float TIME_TOLERANCE = 0.05f;  // 50ms tolerance for prediction_time similarity
         constexpr float SPEED_TOLERANCE = 20.f;  // 20 units/s tolerance for move_speed
