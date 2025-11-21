@@ -79,14 +79,24 @@ inline bool is_knocked_up(game_object* obj)
     return obj ? obj->has_buff_of_type(buff_type::knockup) : false;
 }
 
-// Animation state detection
+// Animation state detection - checks if ACTUALLY locked (in windup), not just animating
 inline bool is_auto_attacking(game_object* obj)
 {
     if (!obj) return false;
     auto active_cast = obj->get_active_spell_cast();
     if (!active_cast) return false;
     auto spell_cast = active_cast->get_spell_cast();
-    return spell_cast && spell_cast->is_basic_attack();
+    if (!spell_cast || !spell_cast->is_basic_attack()) return false;
+
+    // Only locked during windup (before projectile fires)
+    // After windup, champion can animation cancel and move
+    if (!g_sdk || !g_sdk->clock_facade) return false;
+    float current_time = g_sdk->clock_facade->get_game_time();
+    float cast_start = active_cast->get_cast_start_time();
+    float windup = active_cast->get_cast_delay_time();
+
+    // Still in windup = actually locked
+    return (current_time - cast_start) < windup;
 }
 
 inline bool is_casting_spell(game_object* obj)
@@ -95,7 +105,19 @@ inline bool is_casting_spell(game_object* obj)
     auto active_cast = obj->get_active_spell_cast();
     if (!active_cast) return false;
     auto spell_cast = active_cast->get_spell_cast();
-    return spell_cast && !spell_cast->is_basic_attack();
+    if (!spell_cast || spell_cast->is_basic_attack()) return false;
+
+    // Only locked during cast delay (before spell releases)
+    if (!g_sdk || !g_sdk->clock_facade) return false;
+    float current_time = g_sdk->clock_facade->get_game_time();
+    float cast_start = active_cast->get_cast_start_time();
+    float cast_delay = active_cast->get_cast_delay_time();
+
+    // Still in cast delay = actually locked
+    // Some spells have 0 cast delay (instant) - not locked
+    if (cast_delay < 0.01f) return false;
+
+    return (current_time - cast_start) < cast_delay;
 }
 
 inline bool is_channeling(game_object* obj)
