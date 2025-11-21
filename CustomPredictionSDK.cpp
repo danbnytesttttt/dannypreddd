@@ -236,9 +236,19 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     // Start telemetry timing
     auto telemetry_start = std::chrono::high_resolution_clock::now();
 
-    // Use hybrid prediction system
-    HybridPred::HybridPredictionResult hybrid_result =
-        HybridPred::PredictionManager::predict(spell_data.source, obj, spell_data);
+    // Use hybrid prediction system - wrapped in try-catch for safety
+    HybridPred::HybridPredictionResult hybrid_result;
+    try
+    {
+        hybrid_result = HybridPred::PredictionManager::predict(spell_data.source, obj, spell_data);
+    }
+    catch (...)
+    {
+        // Prediction system crashed - return invalid result
+        result.hitchance = pred_sdk::hitchance::any;
+        result.is_valid = false;
+        return result;
+    }
 
     // End telemetry timing
     auto telemetry_end = std::chrono::high_resolution_clock::now();
@@ -247,11 +257,15 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     // FIXED: Safe debug logging for prediction details
     if (PredictionSettings::get().enable_debug_logging)
     {
-        std::stringstream ss;
-        ss << "[Danny.Prediction] Target: " << obj->get_char_name()
-            << " | Valid: " << (hybrid_result.is_valid ? "YES" : "NO")
-            << " | HitChance: " << (hybrid_result.hit_chance * 100.f) << "% (" << hybrid_result.hit_chance << " raw)";
-        g_sdk->log_console(ss.str().c_str());
+        try
+        {
+            std::stringstream ss;
+            ss << "[Danny.Prediction] Target: " << obj->get_char_name()
+                << " | Valid: " << (hybrid_result.is_valid ? "YES" : "NO")
+                << " | HitChance: " << (hybrid_result.hit_chance * 100.f) << "% (" << hybrid_result.hit_chance << " raw)";
+            g_sdk->log_console(ss.str().c_str());
+        }
+        catch (...) { /* Ignore logging errors */ }
     }
 
     if (!hybrid_result.is_valid)
@@ -343,20 +357,26 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     // Check collision if required
     if (!spell_data.forbidden_collisions.empty())
     {
-        pred_sdk::collision_ret collision = collides(result.cast_position, spell_data, obj);
-        if (collision.collided)
+        try
         {
-            // CRITICAL: For non-piercing skillshots, ANY collision invalidates the prediction
-            PredictionTelemetry::TelemetryLogger::log_rejection_collision();
-            result.is_valid = false;
-            result.hitchance = pred_sdk::hitchance::any;
-            return result;
+            pred_sdk::collision_ret collision = collides(result.cast_position, spell_data, obj);
+            if (collision.collided)
+            {
+                // CRITICAL: For non-piercing skillshots, ANY collision invalidates the prediction
+                PredictionTelemetry::TelemetryLogger::log_rejection_collision();
+                result.is_valid = false;
+                result.hitchance = pred_sdk::hitchance::any;
+                return result;
+            }
         }
+        catch (...) { /* Ignore collision check errors */ }
     }
 
-    // Log successful prediction to telemetry
+    // Log successful prediction to telemetry (wrapped in try-catch for safety)
     if (PredictionSettings::get().enable_telemetry)
     {
+        try
+        {
         PredictionTelemetry::PredictionEvent event;
         event.timestamp = g_sdk->clock_facade->get_game_time();
         event.target_name = obj->get_char_name();
@@ -413,6 +433,8 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         event.collision_detected = false;  // Will be updated if collision check fails
 
         PredictionTelemetry::TelemetryLogger::log_prediction(event);
+        }
+        catch (...) { /* Ignore telemetry errors */ }
     }
 
     return result;
