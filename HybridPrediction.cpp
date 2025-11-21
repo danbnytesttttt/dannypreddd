@@ -354,12 +354,13 @@ namespace HybridPred
                     const auto& latest = movement_history_.back();
                     // CRASH FIX: Check velocity magnitude before normalizing
                     float vel_mag = latest.velocity.magnitude();
-                    if (vel_mag < 0.001f)
-                        continue;
-                    math::vector3 vel_dir = latest.velocity / vel_mag;
-                    // Perpendicular: 90° rotation in XZ plane
-                    math::vector3 perpendicular(-vel_dir.z, 0.f, vel_dir.x);
-                    dodge_pattern_.predicted_next_direction = perpendicular * static_cast<float>(-last_juke);
+                    if (vel_mag >= 0.001f)
+                    {
+                        math::vector3 vel_dir = latest.velocity / vel_mag;
+                        // Perpendicular: 90° rotation in XZ plane
+                        math::vector3 perpendicular(-vel_dir.z, 0.f, vel_dir.x);
+                        dodge_pattern_.predicted_next_direction = perpendicular * static_cast<float>(-last_juke);
+                    }
                 }
             }
             // Detect repeating sequence (e.g., L-L-R-L-L-R)
@@ -388,18 +389,21 @@ namespace HybridPred
 
                     // Predict next: continues the sequence
                     // CRASH FIX: Check half != 0 before modulo
-                    if (half == 0) continue;
-                    int next_in_sequence = dodge_pattern_.juke_sequence[dodge_pattern_.juke_sequence.size() % half];
-                    if (next_in_sequence != 0 && !movement_history_.empty())
+                    if (half > 0)
                     {
-                        const auto& latest = movement_history_.back();
-                        // CRASH FIX: Check velocity magnitude before normalizing
-                        float vel_mag = latest.velocity.magnitude();
-                        if (vel_mag < 0.001f)
-                            continue;
-                        math::vector3 vel_dir = latest.velocity / vel_mag;
-                        math::vector3 perpendicular(-vel_dir.z, 0.f, vel_dir.x);
-                        dodge_pattern_.predicted_next_direction = perpendicular * static_cast<float>(next_in_sequence);
+                        int next_in_sequence = dodge_pattern_.juke_sequence[dodge_pattern_.juke_sequence.size() % half];
+                        if (next_in_sequence != 0 && !movement_history_.empty())
+                        {
+                            const auto& latest = movement_history_.back();
+                            // CRASH FIX: Check velocity magnitude before normalizing
+                            float vel_mag = latest.velocity.magnitude();
+                            if (vel_mag >= 0.001f)
+                            {
+                                math::vector3 vel_dir = latest.velocity / vel_mag;
+                                math::vector3 perpendicular(-vel_dir.z, 0.f, vel_dir.x);
+                                dodge_pattern_.predicted_next_direction = perpendicular * static_cast<float>(next_in_sequence);
+                            }
+                        }
                     }
                 }
             }
