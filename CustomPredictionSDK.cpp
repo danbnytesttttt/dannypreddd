@@ -853,7 +853,7 @@ CustomPredictionSDK::aoe_pred_result CustomPredictionSDK::predict_aoe_cluster(
     float min_single_hc,
     bool priority_weighted)
 {
-    aoe_pred_result result;
+    CustomPredictionSDK::aoe_pred_result result;
 
     try
     {
