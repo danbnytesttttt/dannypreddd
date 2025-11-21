@@ -14,13 +14,6 @@ std::string MyHeroNamePredCore;
 void __fastcall on_update()
 {
     CustomPredictionSDK::update_trackers();
-
-    // CRITICAL: Force-set the SDK pointer every frame
-    // Some platforms may overwrite it, so we ensure it stays set
-    if (sdk::prediction != &customPrediction)
-    {
-        sdk::prediction = &customPrediction;
-    }
 }
 
 // Render callback function for visual indicators
