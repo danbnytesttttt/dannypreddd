@@ -14,6 +14,13 @@ std::string MyHeroNamePredCore;
 void __fastcall on_update()
 {
     CustomPredictionSDK::update_trackers();
+
+    // CRITICAL: Force-set the SDK pointer every frame
+    // Some platforms may overwrite it, so we ensure it stays set
+    if (sdk::prediction != &customPrediction)
+    {
+        sdk::prediction = &customPrediction;
+    }
 }
 
 // Render callback function for visual indicators
@@ -92,6 +99,10 @@ extern "C" __declspec(dllexport) bool PluginLoad(core_sdk* sdk, void** custom_sd
     }
 
     *custom_sdk = &customPrediction;
+
+    // CRITICAL: Set the global SDK prediction pointer to our implementation
+    // This is what makes other plugins use our prediction system
+    sdk::prediction = &customPrediction;
 
     // CRITICAL: Validate object_manager and local player before accessing
     if (!g_sdk->object_manager || !g_sdk->object_manager->get_local_player())
