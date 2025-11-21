@@ -10,6 +10,9 @@ CustomPredictionSDK customPrediction;
 // Global variable for champion name
 std::string MyHeroNamePredCore;
 
+// Menu category pointer
+menu_category* g_menu = nullptr;
+
 // Update callback function
 void __fastcall on_update()
 {
@@ -45,7 +48,41 @@ namespace Prediction
         // Register draw callback for visual indicators
         g_sdk->event_manager->register_callback(event_manager::event::draw_world, reinterpret_cast<void*>(on_draw));
 
-        if (g_sdk && PredictionSettings::get().enable_debug_logging)
+        // Create menu category for settings
+        g_menu = g_sdk->menu_manager->add_category("danny_prediction", "Danny.Prediction");
+
+        if (g_menu)
+        {
+            g_menu->add_label("Debug & Logging");
+
+            g_menu->add_checkbox("debug_logs", "Enable Debug Logs", false, [](bool value) {
+                PredictionSettings::get().enable_debug_logging = value;
+            });
+
+            g_menu->add_checkbox("telemetry", "Enable Telemetry", true, [](bool value) {
+                PredictionSettings::get().enable_telemetry = value;
+            });
+
+            g_menu->add_checkbox("visuals", "Draw Predictions", false, [](bool value) {
+                PredictionSettings::get().enable_visuals = value;
+            });
+
+            g_menu->add_label("Prediction Features");
+
+            g_menu->add_checkbox("dash_pred", "Dash Endpoint Prediction", true, [](bool value) {
+                PredictionSettings::get().enable_dash_prediction = value;
+            });
+
+            g_menu->add_checkbox("hp_pressure", "HP Retreat Bias", true, [](bool value) {
+                PredictionSettings::get().enable_hp_pressure = value;
+            });
+
+            g_menu->add_checkbox("cs_pred", "CS Prediction (Experimental)", false, [](bool value) {
+                PredictionSettings::get().enable_cs_prediction = value;
+            });
+        }
+
+        if (PredictionSettings::get().enable_debug_logging)
             g_sdk->log_console("[Danny.Prediction] Loaded - visuals and trackers initialized");
     }
 
