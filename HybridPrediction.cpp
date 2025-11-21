@@ -2110,6 +2110,15 @@ namespace HybridPred
             confidence *= (1.0f + ANIMATION_LOCK_CONFIDENCE_BOOST);  // 1.3x multiplier
         }
 
+        // Bush/fog advantage - if we're hidden, enemy can't react to cast animation
+        // They only see the spell once it's in flight, reducing reaction time
+        if (source->is_in_bush() && !target->is_in_bush())
+        {
+            // Enemy can't see us - significant confidence boost
+            // They lose ~0.25s of reaction time (cast animation)
+            confidence *= 1.25f;
+        }
+
         return std::clamp(confidence, 0.1f, 1.0f);
     }
 
