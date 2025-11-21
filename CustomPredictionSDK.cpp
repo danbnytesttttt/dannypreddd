@@ -464,7 +464,11 @@ math::vector3 CustomPredictionSDK::predict_on_path(game_object* obj, float time,
             // Prevents "corner cutting" through walls on L-shaped paths
             // path[0] = current pos, path[1] = next corner/waypoint
             math::vector3 waypoint = path[1];
-            math::vector3 direction = (waypoint - position).normalized();
+            math::vector3 diff = waypoint - position;
+            float diff_mag = diff.magnitude();
+            if (diff_mag < 0.001f)
+                return position;  // Already at waypoint
+            math::vector3 direction = diff / diff_mag;
             return position + direction * (obj->get_move_speed() * time);
         }
 
@@ -879,11 +883,14 @@ bool CustomPredictionSDK::check_collision_simple(
 
                 // Point-to-line distance check
                 math::vector3 minion_pos = minion->get_position();
-                math::vector3 line_dir = (end - start).normalized();
+                math::vector3 line_diff = end - start;
+                float line_length = line_diff.magnitude();
+                if (line_length < 0.001f)
+                    continue;  // Start and end are same point
+                math::vector3 line_dir = line_diff / line_length;
                 math::vector3 to_minion = minion_pos - start;
 
                 float projection = to_minion.dot(line_dir);
-                float line_length = start.distance(end);
 
                 if (projection < 0.f || projection > line_length)
                     continue;
@@ -914,11 +921,14 @@ bool CustomPredictionSDK::check_collision_simple(
                     continue;
 
                 math::vector3 hero_pos = hero->get_position();
-                math::vector3 line_dir = (end - start).normalized();
+                math::vector3 line_diff = end - start;
+                float line_length = line_diff.magnitude();
+                if (line_length < 0.001f)
+                    continue;  // Start and end are same point
+                math::vector3 line_dir = line_diff / line_length;
                 math::vector3 to_hero = hero_pos - start;
 
                 float projection = to_hero.dot(line_dir);
-                float line_length = start.distance(end);
 
                 if (projection < 0.f || projection > line_length)
                     continue;
