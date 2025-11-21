@@ -6,6 +6,16 @@ CustomPredictionSDK customPrediction;
 // Global variable for champion name
 std::string MyHeroNamePredCore;
 
+// Menu category pointer
+menu_category* g_menu = nullptr;
+
+// Settings
+namespace PredSettings
+{
+    bool debug_logs = false;
+    bool show_predictions = false;
+}
+
 // Update callback function
 void __fastcall on_update()
 {
@@ -18,6 +28,22 @@ namespace Prediction
     {
         // Register update callback for tracker updates
         g_sdk->event_manager->register_callback(event_manager::event::game_update, reinterpret_cast<void*>(on_update));
+
+        // Create menu category
+        g_menu = g_sdk->menu_manager->add_category("danny_prediction", "Danny.Prediction");
+
+        if (g_menu)
+        {
+            g_menu->add_label("Danny.Prediction Settings");
+
+            g_menu->add_checkbox("debug_logs", "Show Debug Logs", false, [](bool value) {
+                PredSettings::debug_logs = value;
+            });
+
+            g_menu->add_checkbox("show_predictions", "Draw Predictions", false, [](bool value) {
+                PredSettings::show_predictions = value;
+            });
+        }
     }
 
     void UnloadPrediction()

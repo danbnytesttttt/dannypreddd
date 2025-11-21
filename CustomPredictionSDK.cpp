@@ -3,6 +3,13 @@
 #include <algorithm>
 #include <limits>
 
+// External settings reference
+namespace PredSettings
+{
+    extern bool debug_logs;
+    extern bool show_predictions;
+}
+
 // =============================================================================
 // TARGETED SPELL PREDICTION
 // =============================================================================
@@ -70,30 +77,33 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
         return result;
     }
 
-    // DEBUG: Log that Danny.Prediction is being used (remove after testing)
-    static bool first_call = true;
-    if (first_call)
-    {
-        g_sdk->log_console("[Danny.Prediction] Active and predicting!");
-        first_call = false;
-    }
-
     // Use hybrid prediction system
     HybridPred::HybridPredictionResult hybrid_result =
         HybridPred::PredictionManager::predict(spell_data.source, obj, spell_data);
 
-    // DEBUG: Log prediction details
-    char debug_msg[256];
-    sprintf_s(debug_msg, "[Danny.Prediction] Target: %s | Valid: %s | HitChance: %.2f",
-        obj->get_char_name().c_str(),
-        hybrid_result.is_valid ? "YES" : "NO",
-        hybrid_result.hit_chance);
-    g_sdk->log_console(debug_msg);
+    // Debug logging (only when enabled in menu)
+    if (PredSettings::debug_logs)
+    {
+        static bool first_call = true;
+        if (first_call)
+        {
+            g_sdk->log_console("[Danny.Prediction] Active and predicting!");
+            first_call = false;
+        }
+
+        char debug_msg[256];
+        sprintf_s(debug_msg, "[Danny.Prediction] Target: %s | Valid: %s | HitChance: %.2f",
+            obj->get_char_name().c_str(),
+            hybrid_result.is_valid ? "YES" : "NO",
+            hybrid_result.hit_chance);
+        g_sdk->log_console(debug_msg);
+    }
 
     if (!hybrid_result.is_valid)
     {
-        if (!hybrid_result.reasoning.empty())
+        if (PredSettings::debug_logs && !hybrid_result.reasoning.empty())
         {
+            char debug_msg[256];
             sprintf_s(debug_msg, "[Danny.Prediction] Reason invalid: %s", hybrid_result.reasoning.c_str());
             g_sdk->log_console(debug_msg);
         }
@@ -104,11 +114,15 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     // Convert hybrid result to pred_data
     result = convert_to_pred_data(hybrid_result, obj, spell_data);
 
-    // DEBUG: Log final hitchance
-    sprintf_s(debug_msg, "[Danny.Prediction] Final enum hitchance: %d (thresh >= %d?)",
-        static_cast<int>(result.hitchance),
-        spell_data.expected_hitchance);
-    g_sdk->log_console(debug_msg);
+    // Debug logging for final hitchance
+    if (PredSettings::debug_logs)
+    {
+        char debug_msg[256];
+        sprintf_s(debug_msg, "[Danny.Prediction] Final enum hitchance: %d (thresh >= %d?)",
+            static_cast<int>(result.hitchance),
+            spell_data.expected_hitchance);
+        g_sdk->log_console(debug_msg);
+    }
 
     // Check collision if required
     if (!spell_data.forbidden_collisions.empty())
