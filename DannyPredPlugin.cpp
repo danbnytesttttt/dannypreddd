@@ -16,22 +16,30 @@ menu_category* g_menu = nullptr;
 // Update callback function
 void __fastcall on_update()
 {
-    CustomPredictionSDK::update_trackers();
+    try
+    {
+        CustomPredictionSDK::update_trackers();
+    }
+    catch (...) { /* Prevent any crash from update callback */ }
 }
 
 // Render callback function for visual indicators
 void __fastcall on_draw()
 {
-    if (!g_sdk || !g_sdk->clock_facade || !g_sdk->renderer)
-        return;
-
-    float current_time = g_sdk->clock_facade->get_game_time();
-
-    // Only draw if visuals are enabled
-    if (PredictionSettings::get().enable_visuals)
+    try
     {
-        PredictionVisuals::draw_continuous_prediction(current_time);
+        if (!g_sdk || !g_sdk->clock_facade || !g_sdk->renderer)
+            return;
+
+        float current_time = g_sdk->clock_facade->get_game_time();
+
+        // Only draw if visuals are enabled
+        if (PredictionSettings::get().enable_visuals)
+        {
+            PredictionVisuals::draw_continuous_prediction(current_time);
+        }
     }
+    catch (...) { /* Prevent any crash from draw callback */ }
 }
 
 namespace Prediction

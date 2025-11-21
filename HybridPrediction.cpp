@@ -1310,6 +1310,10 @@ namespace HybridPred
         // Convert world coordinates to grid coordinates
         int grid_center = BehaviorPDF::GRID_SIZE / 2;
 
+        // CRASH PROTECTION: Check cell_size before division
+        if (pdf.cell_size < 0.1f)
+            return 1.0f;  // Fallback neutral probability
+
         int min_x = static_cast<int>((min_wx - pdf.origin.x) / pdf.cell_size) + grid_center;
         int max_x = static_cast<int>((max_wx - pdf.origin.x) / pdf.cell_size) + grid_center + 1;
         int min_z = static_cast<int>((min_wz - pdf.origin.z) / pdf.cell_size) + grid_center;
@@ -2628,8 +2632,10 @@ namespace HybridPred
             return false;
 
         float distance = std::sqrt(distance_sq);
-        if (distance < EPSILON)
-            return true;  // At origin
+        // CRASH PROTECTION: Use larger safety margin for division
+        constexpr float MIN_SAFE_DISTANCE = 0.01f;
+        if (distance < MIN_SAFE_DISTANCE)
+            return true;  // At origin or too close
 
         // Check angle
         // cos(angle) = dot(to_point, cone_direction) / |to_point|
@@ -2711,6 +2717,10 @@ namespace HybridPred
 
         // Convert world coordinates to grid coordinates
         int grid_center = BehaviorPDF::GRID_SIZE / 2;
+
+        // CRASH PROTECTION: Check cell_size before division
+        if (pdf.cell_size < 0.1f)
+            return 1.0f;  // Fallback neutral probability
 
         int min_x = static_cast<int>((min_wx - pdf.origin.x) / pdf.cell_size) + grid_center;
         int max_x = static_cast<int>((max_wx - pdf.origin.x) / pdf.cell_size) + grid_center + 1;
