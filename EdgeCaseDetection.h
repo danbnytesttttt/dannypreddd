@@ -2,7 +2,7 @@
 
 #include "sdk.hpp"
 #include "StandalonePredictionSDK.h"  // MUST be included AFTER sdk.hpp for compatibility
-#include "PredictionConfig.h"
+#include "PredictionSettings.h"
 #include <vector>
 #include <string>
 
@@ -692,7 +692,7 @@ namespace EdgeCases
         analysis.stasis = detect_stasis(target);
 
         // Dash prediction (configurable)
-        if (PredictionConfig::get().enable_dash_prediction)
+        if (PredictionSettings::get().enable_dash_prediction)
         {
             analysis.dash = detect_dash(target);
         }
