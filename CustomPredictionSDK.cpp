@@ -116,6 +116,10 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
 {
     pred_sdk::pred_data result{};
 
+    // MASTER TRY-CATCH: Prevent ANY crash from this function
+    try
+    {
+
     // Safety: Validate SDK is initialized
     if (!g_sdk || !g_sdk->object_manager || !g_sdk->clock_facade)
     {
@@ -429,6 +433,15 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
     }
 
     return result;
+
+    } // End master try
+    catch (...)
+    {
+        // CRITICAL: Catch ANY exception to prevent crash
+        result.hitchance = pred_sdk::hitchance::any;
+        result.is_valid = false;
+        return result;
+    }
 }
 
 // =============================================================================
@@ -437,6 +450,8 @@ pred_sdk::pred_data CustomPredictionSDK::predict(game_object* obj, pred_sdk::spe
 
 math::vector3 CustomPredictionSDK::predict_on_path(game_object* obj, float time, bool use_server_pos)
 {
+    try
+    {
     if (!obj || !obj->is_valid())
         return math::vector3{};
 
@@ -474,6 +489,11 @@ math::vector3 CustomPredictionSDK::predict_on_path(game_object* obj, float time,
         current_velocity,
         time
     );
+    }
+    catch (...)
+    {
+        return math::vector3{};
+    }
 }
 
 // =============================================================================
@@ -488,6 +508,8 @@ pred_sdk::collision_ret CustomPredictionSDK::collides(
     pred_sdk::collision_ret result{};
     result.collided = false;
 
+    try
+    {
     if (spell_data.forbidden_collisions.empty())
         return result;
 
@@ -504,6 +526,11 @@ pred_sdk::collision_ret CustomPredictionSDK::collides(
     }
 
     return result;
+    }
+    catch (...)
+    {
+        return result;  // Return no collision on error
+    }
 }
 
 // =============================================================================
