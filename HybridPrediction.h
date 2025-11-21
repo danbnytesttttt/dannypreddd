@@ -329,7 +329,7 @@ namespace HybridPred
     class TargetBehaviorTracker
     {
     private:
-        game_object* target_;
+        uint32_t network_id_;  // Store ID instead of raw pointer to prevent dangling pointer crashes
         std::deque<MovementSnapshot> movement_history_;
         DodgePattern dodge_pattern_;
         float last_update_time_;
@@ -355,7 +355,8 @@ namespace HybridPred
         TargetBehaviorTracker(game_object* target);
 
         // Update tracking data (call every frame)
-        void update();
+        // Takes fresh pointer resolved from object_manager to prevent dangling pointer
+        void update(game_object* current_target_ptr);
 
         // Get learned patterns
         const DodgePattern& get_dodge_pattern() const { return dodge_pattern_; }

@@ -108,13 +108,16 @@ namespace HybridPred
     // =========================================================================
 
     TargetBehaviorTracker::TargetBehaviorTracker(game_object* target)
-        : target_(target), last_update_time_(0.f), last_aa_time_(0.f),
+        : network_id_(target ? target->get_network_id() : 0), last_update_time_(0.f), last_aa_time_(0.f),
         cached_prediction_time_(-1.f), cached_move_speed_(-1.f), cached_timestamp_(-1.f)
     {
     }
 
-    void TargetBehaviorTracker::update()
+    void TargetBehaviorTracker::update(game_object* current_target_ptr)
     {
+        // Use fresh pointer passed from manager (prevents dangling pointer crashes)
+        game_object* target_ = current_target_ptr;
+
         if (!target_ || !target_->is_valid())
             return;
 
@@ -2926,36 +2929,27 @@ namespace HybridPred
 
         float current_time = g_sdk->clock_facade->get_game_time();
 
-        // Update all existing trackers
-        for (auto& pair : trackers_)
-        {
-            if (pair.second)
-            {
-                pair.second->update();
-            }
-        }
-
-        // Clean up invalid trackers
+        // Update and clean up trackers in single pass
+        // CRITICAL: Get fresh pointer from object_manager each frame to prevent dangling pointer
         for (auto it = trackers_.begin(); it != trackers_.end(); )
         {
             bool should_remove = false;
 
             if (!it->second)
             {
-                // Null pointer - immediate removal
+                // Null tracker pointer - immediate removal
                 should_remove = true;
             }
             else
             {
-                // Attempt to get target from object manager
+                // Get FRESH pointer from object manager using stored network_id
                 game_object* target = g_sdk->object_manager->get_object_by_network_id(it->first);
 
-                const auto& history = it->second->get_history();
-
-                if (!target)
+                if (!target || !target->is_valid())
                 {
-                    // Target no longer exists (died, recalled, DC'd)
+                    // Target no longer exists or invalid (died, recalled, DC'd)
                     // Keep tracker for TRACKER_TIMEOUT in case they respawn/reconnect
+                    const auto& history = it->second->get_history();
                     if (history.empty())
                     {
                         should_remove = true;  // Never collected data
@@ -2971,8 +2965,9 @@ namespace HybridPred
                 }
                 else
                 {
-                    // Target exists - keep tracker
-                    // Even if in fog of war, preserve learned patterns
+                    // Target is valid - pass FRESH pointer to tracker update
+                    // This prevents using dangling pointer stored in tracker
+                    it->second->update(target);
                     should_remove = false;
                 }
             }
