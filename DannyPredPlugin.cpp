@@ -1,5 +1,6 @@
 #include "sdk.hpp"
 #include "CustomPredictionSDK.h"
+#include "PredictionSettings.h"
 #include "PredictionVisuals.h"
 #include "PredictionTelemetry.h"
 #include "FogOfWarTracker.h"
