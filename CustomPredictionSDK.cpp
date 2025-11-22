@@ -501,43 +501,13 @@ math::vector3 CustomPredictionSDK::predict_on_path(game_object* obj, float time,
 {
     try
     {
-    if (!obj || !obj->is_valid())
-        return math::vector3{};
+        if (!obj || !obj->is_valid())
+            return math::vector3{};
 
-    // Get current position
-    math::vector3 position = use_server_pos ? obj->get_server_position() : obj->get_position();
-
-    // Get tracker for velocity data
-    auto* tracker = HybridPred::PredictionManager::get_tracker(obj);
-    if (!tracker)
-    {
-        // Fallback to simple prediction using path
-        auto path = obj->get_path();
-        if (path.size() > 1)
-        {
-            // FIX: Use NEXT immediate waypoint, not final destination
-            // Prevents "corner cutting" through walls on L-shaped paths
-            // path[0] = current pos, path[1] = next corner/waypoint
-            math::vector3 waypoint = path[1];
-            math::vector3 diff = waypoint - position;
-            float diff_mag = diff.magnitude();
-            if (diff_mag < 0.001f)
-                return position;  // Already at waypoint
-            math::vector3 direction = diff / diff_mag;
-            return position + direction * (obj->get_move_speed() * time);
-        }
-
-        // No path, just return current position
-        return position;
-    }
-
-    // Use physics predictor with current velocity
-    math::vector3 current_velocity = tracker->get_current_velocity();
-    return HybridPred::PhysicsPredictor::predict_linear_position(
-        position,
-        current_velocity,
-        time
-    );
+        // FIX: Use the smart segment-walking predictor
+        // This matches what the actual casting logic uses
+        // Prevents "Visual Lie" where drawn line goes through walls but cast doesn't
+        return HybridPred::PhysicsPredictor::predict_on_path(obj, time);
     }
     catch (...)
     {
@@ -743,6 +713,12 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
         return nullptr;
     }
 
+    // TARGET STICKINESS: Prevent rapid switching between similar-scored targets
+    // This reduces jitter and allows behavior tracking to build up
+    static uint32_t last_target_id = 0;
+    static float last_target_score = 0.f;
+    constexpr float STICKINESS_THRESHOLD = 0.15f;  // Need 15% better score to switch
+
     // Calculate search range: Tactical vs Global spells
     float search_range = spell_data.range;
     if (spell_data.range < 2500.f)
@@ -755,6 +731,8 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
     // Don't blindly accept SDK's target - it optimizes for auto-attacks, not skillshots
     game_object* best_target = nullptr;
     float best_score = -1.f;
+    game_object* current_target = nullptr;
+    float current_target_score = 0.f;
 
     // Get SDK's preferred target for soft priority boost
     game_object* sdk_preferred = nullptr;
@@ -799,11 +777,43 @@ game_object* CustomPredictionSDK::get_best_target(const pred_sdk::spell_data& sp
             score *= 1.1f;
         }
 
+        // Track if this is our current sticky target
+        if (hero->get_network_id() == last_target_id)
+        {
+            current_target = hero;
+            current_target_score = score;
+        }
+
         if (score > best_score)
         {
             best_score = score;
             best_target = hero;
         }
+    }
+
+    // STICKINESS: Prefer current target unless new target is significantly better
+    // This prevents jitter between similar-scored targets
+    if (current_target && current_target_score > 0.f && best_target != current_target)
+    {
+        // Only switch if new target is STICKINESS_THRESHOLD better
+        if (best_score < current_target_score * (1.f + STICKINESS_THRESHOLD))
+        {
+            // Keep current target - not worth switching
+            best_target = current_target;
+            best_score = current_target_score;
+        }
+    }
+
+    // Update sticky target tracking
+    if (best_target)
+    {
+        last_target_id = best_target->get_network_id();
+        last_target_score = best_score;
+    }
+    else
+    {
+        last_target_id = 0;
+        last_target_score = 0.f;
     }
 
     if (PredictionSettings::get().enable_debug_logging && best_target)
