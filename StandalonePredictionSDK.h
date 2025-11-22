@@ -93,7 +93,7 @@ inline bool is_auto_attacking(game_object* obj)
     if (!g_sdk || !g_sdk->clock_facade) return false;
     float current_time = g_sdk->clock_facade->get_game_time();
     float cast_start = active_cast->get_cast_start_time();
-    float windup = active_cast->get_cast_delay_time();
+    float windup = spell_cast->get_cast_delay();
 
     // Still in windup = actually locked
     return (current_time - cast_start) < windup;
@@ -111,7 +111,7 @@ inline bool is_casting_spell(game_object* obj)
     if (!g_sdk || !g_sdk->clock_facade) return false;
     float current_time = g_sdk->clock_facade->get_game_time();
     float cast_start = active_cast->get_cast_start_time();
-    float cast_delay = active_cast->get_cast_delay_time();
+    float cast_delay = spell_cast->get_cast_delay();
 
     // Still in cast delay = actually locked
     // Some spells have 0 cast delay (instant) - not locked
